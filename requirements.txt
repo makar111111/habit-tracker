@@ -1,0 +1,4 @@
+# Те, без чого застосунок не працює.
+# Встановити:  pip install -r requirements.txt
+fastapi[standard]==0.141.1
+sqlmodel==0.0.42

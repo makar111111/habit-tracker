@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Трекер звичок</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <h1>Трекер звичок</h1>
+    <p class="today">Сьогодні: <span id="today"></span></p>
+
+    <!-- Форма додавання. novalidate вимкнено: хай браузер сам
+         перевіряє обов'язкові поля, це безкоштовно. -->
+    <form id="add-form">
+      <input id="name" placeholder="Назва звички" maxlength="100" required>
+      <input id="description" placeholder="Опис (необов'язково)">
+      <button type="submit">Додати</button>
+    </form>
+
+    <!-- Сюди JS вставлятиме звички. У HTML порожньо, бо на момент
+         завантаження сторінки даних ще немає — вони прийдуть із сервера. -->
+    <ul id="habits"></ul>
+
+    <p id="empty" class="empty" hidden>Поки що жодної звички. Додай першу вище.</p>
+    <p id="error" class="error" hidden></p>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
