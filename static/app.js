@@ -2,11 +2,10 @@
 
 // ---------- допоміжне ----------
 
-/** Сьогоднішня дата у форматі YYYY-MM-DD — саме такий чекає сервер. */
-function todayISO() {
-  const d = new Date();
+/** Дата у форматі YYYY-MM-DD — саме такий чекає сервер. */
+function toISO(date) {
   const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 /**
@@ -160,12 +159,6 @@ const MONTH_NAMES = ["січ", "лют", "бер", "кві", "тра", "чер",
                      "лип", "сер", "вер", "жов", "лис", "гру"];
 const WEEKDAY_LABELS = ["Пн", "", "Ср", "", "Пт", "", "Нд"];
 
-/** Дата у форматі YYYY-MM-DD. */
-function toISO(date) {
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
 function addDays(date, days) {
   const copy = new Date(date);
   copy.setDate(copy.getDate() + days);
@@ -185,7 +178,7 @@ function gridStart(today) {
 /** Побудувати блок календаря за множиною відмічених днів. */
 function renderCalendar(doneDays, today) {
   const start = gridStart(today);
-  const todayISO_ = toISO(today);
+  const todayIso = toISO(today);
 
   const calendar = document.createElement("div");
   calendar.className = "calendar";
@@ -228,11 +221,11 @@ function renderCalendar(doneDays, today) {
     const cell = document.createElement("div");
 
     cell.className = "cell";
-    if (iso > todayISO_) {
+    if (iso > todayIso) {
       cell.classList.add("future");          // майбутнє не малюємо
     } else {
       if (doneDays.has(iso)) cell.classList.add("done");
-      if (iso === todayISO_) cell.classList.add("today");
+      if (iso === todayIso) cell.classList.add("today");
       // title показує підказку при наведенні мишею
       cell.title = doneDays.has(iso) ? `${iso} — зроблено` : `${iso} — пропуск`;
     }
@@ -302,7 +295,7 @@ async function toggleToday(habitId, checked) {
       // Порожнє тіло — сервер підставить сьогоднішній день сам.
       await api(`/habits/${habitId}/checkins`, { method: "POST", body: {} });
     } else {
-      await api(`/habits/${habitId}/checkins/${todayISO()}`, { method: "DELETE" });
+      await api(`/habits/${habitId}/checkins/${toISO(new Date())}`, { method: "DELETE" });
     }
   } catch (error) {
     showError(error.message);
@@ -347,6 +340,6 @@ async function addHabit(event) {
 
 // ---------- старт ----------
 
-document.getElementById("today").textContent = todayISO();
+document.getElementById("today").textContent = toISO(new Date());
 document.getElementById("add-form").addEventListener("submit", addHabit);
 load();

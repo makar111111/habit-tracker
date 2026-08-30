@@ -1,4 +1,4 @@
-"""Трекер звичок — крок 3: звички та відмітки їх виконання."""
+"""Трекер звичок: ендпоінти API та віддача сторінки застосунку."""
 
 from contextlib import asynccontextmanager
 from datetime import date
@@ -31,6 +31,17 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Трекер звичок", lifespan=lifespan)
 
 SessionDep = Annotated[Session, Depends(get_session)]
+
+
+def find_checkin(habit_id: int, day: date, session: Session) -> Checkin | None:
+    """Знайти відмітку звички за конкретний день, або None.
+
+    Потрібна двом ендпоінтам: створення перевіряє нею дублікат,
+    видалення — наявність.
+    """
+    return session.exec(
+        select(Checkin).where(Checkin.habit_id == habit_id, Checkin.day == day)
+    ).first()
 
 
 def get_habit_or_404(habit_id: int, session: Session) -> Habit:
@@ -92,7 +103,9 @@ def delete_habit(habit_id: int, session: SessionDep) -> None:
 
     # Спершу приберемо відмітки. Інакше в базі лишились би "сироти" —
     # відмітки, що посилаються на звичку, якої вже не існує.
-    checkins = session.exec(select(Checkin).where(Checkin.habit_id == habit_id))
+    checkins = session.exec(
+        select(Checkin).where(Checkin.habit_id == habit_id)
+    ).all()
     for checkin in checkins:
         session.delete(checkin)
 
@@ -142,11 +155,7 @@ def create_checkin(
 
     day = data.day or date.today()
 
-    # Перевіряємо, чи такої відмітки ще немає.
-    existing = session.exec(
-        select(Checkin).where(Checkin.habit_id == habit_id, Checkin.day == day)
-    ).first()
-    if existing is not None:
+    if find_checkin(habit_id, day, session) is not None:
         # 409 Conflict — "запит правильний, але суперечить поточному стану".
         # Саме той код, який треба для повторного створення того самого.
         raise HTTPException(status_code=409, detail="Цей день уже відмічено")
@@ -163,9 +172,7 @@ def delete_checkin(habit_id: int, day: date, session: SessionDep) -> None:
     """Зняти відмітку за конкретний день (натиснув помилково)."""
     get_habit_or_404(habit_id, session)
 
-    checkin = session.exec(
-        select(Checkin).where(Checkin.habit_id == habit_id, Checkin.day == day)
-    ).first()
+    checkin = find_checkin(habit_id, day, session)
     if checkin is None:
         raise HTTPException(status_code=404, detail="Відмітку не знайдено")
 
