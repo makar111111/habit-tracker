@@ -7,17 +7,23 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 import stats
+from auth import CurrentUser
 from database import create_db_and_tables, get_session
 from models import (
     Checkin,
     CheckinCreate,
     Habit,
     HabitCreate,
+    HabitPublic,
     HabitStats,
     HabitUpdate,
+    User,
+    UserPublic,
+    UserUpdate,
 )
 
 
@@ -44,37 +50,69 @@ def find_checkin(habit_id: int, day: date, session: Session) -> Checkin | None:
     ).first()
 
 
-def get_habit_or_404(habit_id: int, session: Session) -> Habit:
-    """Знайти звичку або одразу відповісти 404.
+def get_habit_or_404(habit_id: int, user: User, session: Session) -> Habit:
+    """Знайти звичку СЕРЕД ЗВИЧОК ЦЬОГО КОРИСТУВАЧА або відповісти 404.
 
     Ця перевірка потрібна майже в кожному ендпоінті, тож винесена окремо,
     щоб не копіювати ті самі три рядки шість разів.
+
+    Чужа звичка дає 404 «не знайдено», а не 403 «заборонено» — навмисно.
+    403 означало б «така звичка існує, але не твоя», і перебором id
+    можна було б дізнатися, скільки звичок у сусіда. 404 не каже нічого.
     """
     habit = session.get(Habit, habit_id)
-    if habit is None:
+    if habit is None or habit.user_id != user.id:
         raise HTTPException(status_code=404, detail="Звичку не знайдено")
     return habit
+
+
+# ---------- Користувач ----------
+
+
+@app.get("/users/me")
+def read_me(user: CurrentUser) -> UserPublic:
+    """Хто я з погляду API. Бот викликає це, щоб перевірити зв'язок.
+
+    Повертаємо об'єкт User, а в анотації стоїть UserPublic — і FastAPI
+    сам відкидає все зайве. Так само працюють ендпоінти звичок:
+    вони віддають Habit, а назовні виходить HabitPublic без user_id.
+    """
+    return user
+
+
+@app.patch("/users/me")
+def update_me(data: UserUpdate, user: CurrentUser, session: SessionDep) -> UserPublic:
+    """Зберегти ім'я користувача (бот надішле його при /start)."""
+    user.name = data.name
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
 
 
 # ---------- Звички ----------
 
 
 @app.get("/habits")
-def list_habits(session: SessionDep) -> list[Habit]:
-    """Повернути всі звички."""
-    return list(session.exec(select(Habit)).all())
+def list_habits(user: CurrentUser, session: SessionDep) -> list[HabitPublic]:
+    """Повернути звички поточного користувача."""
+    return list(session.exec(select(Habit).where(Habit.user_id == user.id)).all())
 
 
 @app.get("/habits/{habit_id}")
-def get_habit(habit_id: int, session: SessionDep) -> Habit:
+def get_habit(habit_id: int, user: CurrentUser, session: SessionDep) -> HabitPublic:
     """Повернути одну звичку за id."""
-    return get_habit_or_404(habit_id, session)
+    return get_habit_or_404(habit_id, user, session)
 
 
 @app.post("/habits", status_code=201)
-def create_habit(data: HabitCreate, session: SessionDep) -> Habit:
-    """Створити нову звичку."""
-    habit = Habit.model_validate(data)
+def create_habit(
+    data: HabitCreate, user: CurrentUser, session: SessionDep
+) -> HabitPublic:
+    """Створити нову звичку для поточного користувача."""
+    # Власник береться з автентифікації, а НЕ з тіла запиту. Якби user_id
+    # приходив від клієнта, будь-хто міг би створити звичку іншій людині.
+    habit = Habit.model_validate(data, update={"user_id": user.id})
     session.add(habit)
     session.commit()
     session.refresh(habit)
@@ -82,9 +120,11 @@ def create_habit(data: HabitCreate, session: SessionDep) -> Habit:
 
 
 @app.patch("/habits/{habit_id}")
-def update_habit(habit_id: int, data: HabitUpdate, session: SessionDep) -> Habit:
+def update_habit(
+    habit_id: int, data: HabitUpdate, user: CurrentUser, session: SessionDep
+) -> HabitPublic:
     """Змінити назву та/або опис звички."""
-    habit = get_habit_or_404(habit_id, session)
+    habit = get_habit_or_404(habit_id, user, session)
 
     # exclude_unset=True бере лише поля, які клієнт справді надіслав.
     for field, value in data.model_dump(exclude_unset=True).items():
@@ -97,9 +137,9 @@ def update_habit(habit_id: int, data: HabitUpdate, session: SessionDep) -> Habit
 
 
 @app.delete("/habits/{habit_id}", status_code=204)
-def delete_habit(habit_id: int, session: SessionDep) -> None:
+def delete_habit(habit_id: int, user: CurrentUser, session: SessionDep) -> None:
     """Видалити звичку разом з усіма її відмітками."""
-    habit = get_habit_or_404(habit_id, session)
+    habit = get_habit_or_404(habit_id, user, session)
 
     # Спершу приберемо відмітки. Інакше в базі лишились би "сироти" —
     # відмітки, що посилаються на звичку, якої вже не існує.
@@ -119,6 +159,7 @@ def delete_habit(habit_id: int, session: SessionDep) -> None:
 @app.get("/habits/{habit_id}/checkins")
 def list_checkins(
     habit_id: int,
+    user: CurrentUser,
     session: SessionDep,
     since: date | None = None,
     until: date | None = None,
@@ -130,7 +171,7 @@ def list_checkins(
         /habits/2/checkins?since=2026-06-01&until=2026-08-30
     Без них повертаються всі відмітки.
     """
-    get_habit_or_404(habit_id, session)
+    get_habit_or_404(habit_id, user, session)
 
     # where — це фільтр (SQL: WHERE habit_id = ...),
     # order_by — сортування (SQL: ORDER BY day DESC).
@@ -148,10 +189,10 @@ def list_checkins(
 
 @app.post("/habits/{habit_id}/checkins", status_code=201)
 def create_checkin(
-    habit_id: int, data: CheckinCreate, session: SessionDep
+    habit_id: int, data: CheckinCreate, user: CurrentUser, session: SessionDep
 ) -> Checkin:
     """Відмітити звичку як виконану. Без вказаного дня — за сьогодні."""
-    get_habit_or_404(habit_id, session)
+    get_habit_or_404(habit_id, user, session)
 
     day = data.day or date.today()
 
@@ -162,15 +203,30 @@ def create_checkin(
 
     checkin = Checkin(habit_id=habit_id, day=day)
     session.add(checkin)
-    session.commit()
+
+    try:
+        session.commit()
+    except IntegrityError:
+        # Перевірка вище (find_checkin) не рятує від гонки: два запити
+        # можуть обидва пройти її до того, як хоч один зробив commit —
+        # саме так стається, коли людина двічі швидко тицяє ту саму
+        # кнопку в боті. Другий INSERT впирається в UNIQUE(habit_id, day)
+        # і без цього блоку впав би 500-кою замість чесного 409.
+        # Той самий UNIQUE, який README називає "останньою лінією
+        # захисту", тут і спрацьовує — просто треба зловити його гідно.
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Цей день уже відмічено")
+
     session.refresh(checkin)
     return checkin
 
 
 @app.delete("/habits/{habit_id}/checkins/{day}", status_code=204)
-def delete_checkin(habit_id: int, day: date, session: SessionDep) -> None:
+def delete_checkin(
+    habit_id: int, day: date, user: CurrentUser, session: SessionDep
+) -> None:
     """Зняти відмітку за конкретний день (натиснув помилково)."""
-    get_habit_or_404(habit_id, session)
+    get_habit_or_404(habit_id, user, session)
 
     checkin = find_checkin(habit_id, day, session)
     if checkin is None:
@@ -184,18 +240,27 @@ def delete_checkin(habit_id: int, day: date, session: SessionDep) -> None:
 
 
 @app.get("/stats")
-def all_stats(session: SessionDep) -> list[HabitStats]:
+def all_stats(user: CurrentUser, session: SessionDep) -> list[HabitStats]:
     """Статистика всіх звичок одразу — рівно два запити до бази.
 
     Наївний варіант виглядав би так: взяти звички, а далі в циклі
     для кожної спитати її відмітки. Це N+1 запитів — на сотні звичок
     база задихнеться. Тому беремо все одним запитом і групуємо в пам'яті.
     """
-    habits = session.exec(select(Habit)).all()
+    habits = session.exec(select(Habit).where(Habit.user_id == user.id)).all()
 
-    # Запит 2: усі відмітки всіх звичок. Дістаємо лише дві колонки,
-    # бо більше нічого й не потрібно.
-    rows = session.exec(select(Checkin.habit_id, Checkin.day)).all()
+    # Запит 2: відмітки всіх звичок ЦЬОГО користувача. Дістаємо лише
+    # дві колонки, бо більше нічого й не потрібно.
+    #
+    # join(Habit) приєднує таблицю звичок, щоб дістатися до user_id:
+    # у самої відмітки власника не записано, він відомий лише через звичку.
+    # SQLAlchemy сам розуміє, як з'єднати таблиці — по foreign_key,
+    # оголошеному в моделі Checkin. Запит при цьому лишається одним.
+    rows = session.exec(
+        select(Checkin.habit_id, Checkin.day)
+        .join(Habit)
+        .where(Habit.user_id == user.id)
+    ).all()
 
     # Розкладаємо плаский список по звичках: {1: [дати], 2: [дати], ...}
     days_by_habit: dict[int, list[date]] = {}
@@ -213,9 +278,9 @@ def all_stats(session: SessionDep) -> list[HabitStats]:
 
 
 @app.get("/habits/{habit_id}/stats")
-def habit_stats(habit_id: int, session: SessionDep) -> HabitStats:
+def habit_stats(habit_id: int, user: CurrentUser, session: SessionDep) -> HabitStats:
     """Порахувати показники звички: серії, всього днів, чи зроблено сьогодні."""
-    get_habit_or_404(habit_id, session)
+    get_habit_or_404(habit_id, user, session)
 
     # Беремо з бази ЛИШЕ колонку day, а не цілі рядки.
     # Нам не потрібні id відміток — навіщо тягнути зайве.

@@ -10,8 +10,14 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
 
+import auth
 from database import get_session
 from main import app
+
+# Секрет для тестів. Навмисно латиницею: HTTP-заголовки однобайтові,
+# і кирилиця в них не проходить — та сама пастка, через яку ім'я
+# користувача ми передаємо тілом запиту, а не заголовком.
+TEST_BOT_SECRET = "test-secret-for-pytest"
 
 
 @pytest.fixture(name="session")
@@ -54,6 +60,29 @@ def client_fixture(session: Session):
 
     # Прибираємо підміну, щоб вона не протекла в інші тести.
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(name="bot_headers")
+def bot_headers_fixture(monkeypatch: pytest.MonkeyPatch):
+    """Заголовки, з якими бот звертається до API.
+
+    Повертає не самі заголовки, а функцію: у тестах ізоляції потрібні
+    кілька різних користувачів, тож id вказується на місці —
+    bot_headers(111) і bot_headers(222) дають двох різних людей.
+
+    monkeypatch підміняє справжній BOT_SECRET на тестовий і сам вертає
+    все назад після тесту. Завдяки цьому тести не залежать від того,
+    що саме лежить у твоєму .env, і працюють навіть без нього.
+    """
+    monkeypatch.setattr(auth, "BOT_SECRET", TEST_BOT_SECRET)
+
+    def make(telegram_id: int) -> dict[str, str]:
+        return {
+            "X-Telegram-Id": str(telegram_id),
+            "X-Bot-Secret": TEST_BOT_SECRET,
+        }
+
+    return make
 
 
 @pytest.fixture(name="habit_id")

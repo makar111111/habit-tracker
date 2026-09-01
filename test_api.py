@@ -224,10 +224,14 @@ def test_all_stats_separates_habits(client: TestClient):
 def test_all_stats_does_not_scale_queries_with_habits(
     client: TestClient, session: Session
 ):
-    """Скільки б не було звичок, запитів до бази лишається два.
+    """Скільки б не було звичок, запитів до бази лишається три.
 
     Це тест не на правильність, а на продуктивність: він зафіксує,
     якщо хтось колись перепише ендпоінт через цикл із запитом усередині.
+
+    Чому саме три, а не два, як було раніше: один запит тепер витрачається
+    на пошук користувача під час автентифікації. Він однаковий завжди —
+    від кількості звичок не залежить, а саме це тест і стереже.
     """
     for number in range(5):
         habit = client.post("/habits", json={"name": f"звичка {number}"}).json()
@@ -246,4 +250,4 @@ def test_all_stats_does_not_scale_queries_with_habits(
         event.remove(engine, "before_cursor_execute", record)
 
     selects = [q for q in executed if q.strip().upper().startswith("SELECT")]
-    assert len(selects) == 2, f"очікували 2 запити, а було {len(selects)}"
+    assert len(selects) == 3, f"очікували 3 запити, а було {len(selects)}"
