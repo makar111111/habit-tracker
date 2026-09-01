@@ -1,0 +1,48 @@
+name: Тести
+
+# Ганяємо на кожен push і на кожен pull request. Сенс саме в PR:
+# зелена галочка з'являється просто в обговоренні змін, ще до злиття.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Та сама версія, що й у розробці та в Dockerfile. Розбіжність
+          # тут означала б, що CI перевіряє не той Python, на якому
+          # застосунок працюватиме.
+          python-version: "3.14"
+          # Кеш встановлених пакетів між запусками: без нього кожен
+          # прогін наново тягнув би fastapi з залежностями.
+          cache: pip
+
+      - name: Встановити залежності
+        run: pip install -r requirements-dev.txt
+
+      - name: Прогнати тести
+        run: python -m pytest -q
+        env:
+          # Тести підміняють BOT_SECRET через monkeypatch, тож справжній
+          # тут не потрібен — і саме тому CI не потребує жодних секретів
+          # репозиторію. Змінна задана порожньою навмисно: так перевіряється
+          # ще й те, що застосунок стартує без налаштувань.
+          BOT_SECRET: ""
+
+  # Окремим завданням: чи взагалі збирається образ. Не запускає його —
+  # лише перевіряє, що Dockerfile не зламали черговою правкою.
+  docker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Зібрати образ
+        run: docker build -t habits:ci .

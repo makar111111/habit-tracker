@@ -2,8 +2,7 @@
 
 from sqlmodel import Session, SQLModel, create_engine
 
-# Три слеші — це "файл поруч зі мною". Тобто habits.db у папці проєкту.
-DATABASE_URL = "sqlite:///habits.db"
+from config import DATABASE_URL
 
 # engine — це об'єкт, який уміє відкривати з'єднання з базою.
 # Створюється один раз на весь застосунок.

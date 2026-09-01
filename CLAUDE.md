@@ -16,7 +16,7 @@
 | Файл / тека | Призначення |
 |---|---|
 | `main.py` | API: маршрути й точка входу |
-| `bot/` | Telegram-бот: `__main__.py` (запуск), `api.py` (клієнт до API), `menu.py`/`checkin.py`/`new_habit.py` (хендлери), `keyboards.py`, `views.py` |
+| `bot/` | Telegram-бот: `__main__.py` (запуск), `api.py` (клієнт до API), `menu.py`/`checkin.py`/`new_habit.py`/`manage.py` (хендлери), `keyboards.py`, `views.py`, `plural.py` (відмінювання числівників), `reminders.py` (щоденне нагадування) |
 | `models.py` | Моделі даних (таблиці) |
 | `database.py` | Підключення до БД, сесії |
 | `auth.py` | Реєстрація та авторизація користувачів |
@@ -24,7 +24,9 @@
 | `config.py` | Налаштування, читає `.env` |
 | `migrate_add_users.py` | Разовий скрипт міграції (додавання users) |
 | `static/` | Фронтенд-файли |
-| `test_*.py` | Тести: `api`, `bot_api`, `bot_handlers`, `stats`, `users` |
+| `test_*.py` | Тести: `api`, `bot_api`, `bot_handlers`, `stats`, `users`, `reminders` |
+| `Dockerfile`, `docker-compose.yml` | Контейнери: один образ, два сервіси (api + bot) |
+| `.github/workflows/` | CI: тести й збірка образу на кожен push і PR |
 
 Бот ходить у API по HTTP (`httpx.AsyncClient` у `bot/api.py`), а не в базу
 напряму — робота з базою в проєкті синхронна, і прямий доступ заблокував би
@@ -53,6 +55,11 @@ python -m pytest
 # один файл або один тест
 python -m pytest test_api.py
 python -m pytest test_api.py::test_create_habit -v
+
+# запуск у контейнерах (обидва сервіси одразу)
+docker compose up -d --build
+docker compose logs -f bot
+docker compose down
 ```
 
 Лінтера в проєкті поки не налаштовано — `flake8`/`ruff` не встановлені.
