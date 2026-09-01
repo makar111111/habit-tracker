@@ -73,20 +73,25 @@ class HabitsAPI:
 
     # ---------- внутрішня кухня ----------
 
-    def _headers(self, telegram_id: int) -> dict[str, str]:
+    def _headers(self, telegram_id: int | None) -> dict[str, str]:
         """Заголовки, якими бот доводить, кого саме він обслуговує.
 
         X-Telegram-Id сам по собі нічого не вартий — його міг би надіслати
         будь-хто. Довіру дає X-Bot-Secret: спільний пароль, який знають
         лише бот і API. Перевірку робить auth.get_current_user.
+
+        telegram_id=None — для запитів, що стосуються ВСІХ користувачів
+        одразу (список для розсилки нагадувань), де немає «від імені
+        кого»: X-Telegram-Id тоді просто не додається, і на боці API
+        такий запит перевіряє auth.require_bot, а не get_current_user.
         """
-        return {
-            "X-Telegram-Id": str(telegram_id),
-            "X-Bot-Secret": self._secret,
-        }
+        headers = {"X-Bot-Secret": self._secret}
+        if telegram_id is not None:
+            headers["X-Telegram-Id"] = str(telegram_id)
+        return headers
 
     async def _request(
-        self, method: str, url: str, telegram_id: int, **kwargs
+        self, method: str, url: str, telegram_id: int | None, **kwargs
     ) -> httpx.Response:
         """Один запит до API з автентифікацією та зрозумілими помилками."""
         try:
@@ -146,6 +151,16 @@ class HabitsAPI:
         )
         self._ok(response)
 
+    async def list_telegram_users(self) -> list[int]:
+        """Усі telegram_id, кому бот може писати. Для розсилки нагадувань.
+
+        telegram_id=None у запиті: тут немає "від імені кого" — питання
+        не "хто ти", а "дай мені всіх". API перевіряє це auth.require_bot,
+        не auth.get_current_user.
+        """
+        response = await self._request("GET", "/telegram-users", None)
+        return self._ok(response).json()
+
     # ---------- звички ----------
 
     async def list_habits(self, telegram_id: int) -> list[dict]:
@@ -190,6 +205,36 @@ class HabitsAPI:
             telegram_id,
             json={"name": name, "description": description},
         )
+        return self._ok(response).json()
+
+    async def update_habit(
+        self,
+        telegram_id: int,
+        habit_id: int,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> dict:
+        """Змінити назву та/або опис звички.
+
+        Аргументи keyword-only (після `*`) навмисно: update_habit(id, "Йога")
+        без назви поля читалося б двозначно — це нова назва чи опис?
+        Тепер плутанина неможлива, доводиться писати name= або description=.
+
+        У тіло запиту кладемо ЛИШЕ передані поля. На боці API працює
+        exclude_unset: чого немає в тілі, того він і не чіпає. Тому
+        зміна лише назви не затирає опис порожнім рядком.
+        """
+        payload: dict[str, str] = {}
+        if name is not None:
+            payload["name"] = name[:MAX_NAME_LENGTH]
+        if description is not None:
+            payload["description"] = description
+
+        response = await self._request(
+            "PATCH", f"/habits/{habit_id}", telegram_id, json=payload
+        )
+        self._raise_if_gone(response)
         return self._ok(response).json()
 
     async def delete_habit(self, telegram_id: int, habit_id: int) -> None:

@@ -2,25 +2,28 @@
 
 from datetime import date
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from bot.api import HabitsAPI
 from bot.keyboards import HabitCallback
-from bot.new_habit import NewHabit
 from bot.views import habits_view
 
 router = Router(name="checkin")
 
 MID_DIALOG = (
-    "Спершу завершимо створення звички.\n"
+    "Спершу завершимо почате.\n"
     "Надішли /cancel, якщо передумав."
 )
 
 
-@router.callback_query(HabitCallback.filter())
+# F.action == "toggle", а не просто HabitCallback.filter(): у кнопки звички
+# тепер кілька різних дій (відмітити, відкрити картку, перейменувати,
+# видалити). Без явної дії цей обробник ковтав би їх усі — а він уміє
+# лише перемикати відмітку.
+@router.callback_query(HabitCallback.filter(F.action == "toggle"))
 async def toggle_checkin(
     callback: CallbackQuery, callback_data: HabitCallback, api: HabitsAPI, state: FSMContext
 ) -> None:
@@ -40,14 +43,17 @@ async def toggle_checkin(
     telegram_id = callback.from_user.id
 
     # Кнопка звички не привʼязана до жодного стану — вона працює завжди,
-    # у тому числі посеред діалогу створення. Без цієї перевірки натискання
+    # у тому числі посеред діалогу. Без цієї перевірки натискання
     # спрацьовувало б і малювало ЗВИЧАЙНИЙ список — найсильніший можливий
     # сигнал «діалог завершено» — хоча FSM насправді лишається на кроці
-    # NewHabit.name чи .description. Наступне ж случайне повідомлення
-    # людини («а коли вечеря») тихо стає назвою чи описом нової звички.
-    # Той самий принцип, що вже застосований до команд у new_habit.py.
-    current_state = await state.get_state()
-    if current_state in (NewHabit.name.state, NewHabit.description.state):
+    # введення. Наступне ж випадкове повідомлення людини («а коли вечеря»)
+    # тихо стало б назвою звички.
+    #
+    # Перевіряємо «є БУДЬ-ЯКИЙ стан», а не перелік конкретних: діалогів
+    # у боті вже два (створення й редагування), і перелік довелося б
+    # доповнювати щоразу — а забути легко. Жоден стан цього бота не
+    # передбачає відмічання посеред нього, тож умова чесно описує намір.
+    if await state.get_state() is not None:
         await callback.answer(MID_DIALOG, show_alert=True)
         return
 

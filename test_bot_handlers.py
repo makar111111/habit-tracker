@@ -28,7 +28,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlmodel import Session, SQLModel, create_engine
 
 import auth
-from bot import checkin, menu, new_habit
+from bot import checkin, manage, menu, new_habit
 from bot.__main__ import on_error
 from bot.api import HabitsAPI
 from conftest import TEST_BOT_SECRET
@@ -229,6 +229,7 @@ async def tg_fixture(tmp_path, monkeypatch: pytest.MonkeyPatch):
     # Порядок той самий, що в __main__.py — інакше тести перевіряли б
     # не той бот, який запускається насправді.
     dispatcher.include_router(new_habit.router)
+    dispatcher.include_router(manage.router)
     dispatcher.include_router(menu.router)
     dispatcher.include_router(checkin.router)
 
@@ -245,7 +246,7 @@ async def tg_fixture(tmp_path, monkeypatch: pytest.MonkeyPatch):
     # але кожен тест будує диспетчер заново, тож відвʼязуємо їх назад.
     # Інакше все, крім першого тесту, падало б із
     # "Router is already attached".
-    for router in (new_habit.router, menu.router, checkin.router):
+    for router in (new_habit.router, manage.router, menu.router, checkin.router):
         router._parent_router = None
 
 
@@ -267,7 +268,7 @@ async def test_start_greets_and_shows_empty_list(tg: BotUnderTest):
 
     assert "Вітаю, Олена" in tg.texts[0]
     assert "ще немає жодної звички" in tg.texts[0]
-    assert tg.buttons == ["➕ Нова звичка"]
+    assert tg.buttons == ["➕ Нова звичка", "⚙️ Керувати"]
 
 
 async def test_start_saves_name(tg: BotUnderTest):
@@ -631,3 +632,230 @@ def test_shorten_does_not_split_flag_emoji():
 
     regional_indicators = sum(1 for c in result if 0x1F1E6 <= ord(c) <= 0x1F1FF)
     assert regional_indicators % 2 == 0, f"розрізаний прапор у {result!r}"
+
+
+# ---------- керування звичками ----------
+
+
+async def test_manage_button_opens_management_list(tg: BotUnderTest):
+    await create_habit_via_dialog(tg, "Йога")
+
+    await tg.tap("menu:manage")
+
+    assert "Керування звичками" in tg.texts[-1]
+    # У режимі керування — без ✅/⬜: тут не відмічають, а порядкують.
+    assert "Йога" in tg.buttons
+    assert not any(b.startswith(("✅", "⬜")) for b in tg.buttons)
+
+
+async def test_back_from_manage_returns_to_habits(tg: BotUnderTest):
+    await create_habit_via_dialog(tg, "Йога")
+    await tg.tap("menu:manage")
+
+    await tg.tap("menu:habits")
+
+    assert "Твої звички" in tg.texts[-1]
+    assert any("Йога" in b and b.startswith("⬜") for b in tg.buttons)
+
+
+async def test_habit_card_shows_stats_and_description(tg: BotUnderTest):
+    await tg.send("/new")
+    await tg.send("Зарядка")
+    await tg.send("одразу після пробудження")
+
+    habit_id = (await tg.api.list_habits(USER.id))[0]["id"]
+    await tg.api.check_in(USER.id, habit_id)
+
+    await tg.tap(f"habit:open:{habit_id}")
+
+    card = tg.texts[-1]
+    assert "Зарядка" in card
+    assert "одразу після пробудження" in card
+    assert "відмічено" in card
+    assert "Серія: 1 день" in card  # відмінювання: саме "день", не "днів"
+
+
+async def test_habit_card_escapes_html_in_name(tg: BotUnderTest):
+    """Назва потрапляє в HTML-текст картки, тож має бути екранована.
+
+    У списку назви живуть лише на кнопках, де розмітка не обробляється.
+    Картка — перший екран, де назва йде в сам текст, і незекранований
+    «<» тут відхилив би повідомлення цілком, як колись ламав /start.
+    """
+    await tg.send("/new")
+    await tg.send("Читати <Дюну>")
+    await tg.tap("menu:skip_description")
+
+    habit_id = (await tg.api.list_habits(USER.id))[0]["id"]
+    await tg.tap(f"habit:open:{habit_id}")
+
+    card = tg.texts[-1]
+    assert "&lt;Дюну&gt;" in card
+    assert "<Дюну>" not in card
+
+
+async def test_rename_habit(tg: BotUnderTest):
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+
+    await tg.tap(f"habit:rename:{habit_id}")
+    assert "нову назву" in tg.texts[-1]
+
+    await tg.send("Ранкова йога")
+
+    assert "Збережено" in tg.texts[-1]
+    habits = await tg.api.list_habits(USER.id)
+    assert [h["name"] for h in habits] == ["Ранкова йога"]
+
+
+async def test_rename_keeps_description(tg: BotUnderTest):
+    """Зміна назви не має затирати опис.
+
+    На боці API це забезпечує exclude_unset, а на боці бота — те, що
+    update_habit кладе в тіло лише передані поля. Якби він завжди слав
+    обидва, опис перетворився б на порожній рядок.
+    """
+    await tg.send("/new")
+    await tg.send("Йога")
+    await tg.send("щоранку 20 хвилин")
+
+    habit_id = (await tg.api.list_habits(USER.id))[0]["id"]
+
+    await tg.tap(f"habit:rename:{habit_id}")
+    await tg.send("Ранкова йога")
+
+    habit = (await tg.api.list_habits(USER.id))[0]
+    assert habit["name"] == "Ранкова йога"
+    assert habit["description"] == "щоранку 20 хвилин"
+
+
+async def test_change_description(tg: BotUnderTest):
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+
+    await tg.tap(f"habit:describe:{habit_id}")
+    await tg.send("новий опис")
+
+    habit = (await tg.api.list_habits(USER.id))[0]
+    assert habit["description"] == "новий опис"
+
+
+async def test_clear_description_with_marker(tg: BotUnderTest):
+    """Порожнє повідомлення надіслати не можна, тому опис прибирає «-»."""
+    await tg.send("/new")
+    await tg.send("Йога")
+    await tg.send("зайвий опис")
+
+    habit_id = (await tg.api.list_habits(USER.id))[0]["id"]
+
+    await tg.tap(f"habit:describe:{habit_id}")
+    await tg.send("-")
+
+    habit = (await tg.api.list_habits(USER.id))[0]
+    assert habit["description"] == ""
+
+
+async def test_command_during_rename_does_not_become_the_name(tg: BotUnderTest):
+    """Та сама пастка, що й у діалозі створення — і той самий захист."""
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+    await tg.tap(f"habit:rename:{habit_id}")
+
+    await tg.send("/habits")
+
+    assert "завершимо редагування" in tg.texts[0]
+    assert (await tg.api.list_habits(USER.id))[0]["name"] == "Йога"
+
+
+async def test_cancel_rename_keeps_old_name(tg: BotUnderTest):
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+    await tg.tap(f"habit:rename:{habit_id}")
+
+    await tg.send("/cancel")
+
+    assert "Скасовано" in tg.texts[0]
+    assert (await tg.api.list_habits(USER.id))[0]["name"] == "Йога"
+
+
+async def test_tapping_habit_during_rename_is_refused(tg: BotUnderTest):
+    """Відмічати посеред редагування не можна — інакше екран збрехав би.
+
+    Перевірка в checkin.py дивиться на «є будь-який стан», а не на
+    перелік станів створення. Цей тест стереже саме те, що вона
+    поширюється й на новий діалог редагування.
+    """
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+    await tg.tap(f"habit:rename:{habit_id}")
+
+    await tg.tap(f"habit:toggle:{habit_id}")
+
+    assert "Спершу завершимо" in tg.texts[0]
+    stats = next(
+        h["stats"] for h in await tg.api.habits_with_stats(USER.id)
+        if h["id"] == habit_id
+    )
+    assert stats["done_today"] is False
+
+
+# ---------- видалення ----------
+
+
+async def test_delete_asks_for_confirmation_first(tg: BotUnderTest):
+    """Кошик не видаляє одразу — спершу питає, і називає ціну."""
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+    await tg.api.check_in(USER.id, habit_id)
+
+    await tg.tap(f"habit:delete:{habit_id}")
+
+    assert "Видалити" in tg.texts[-1]
+    assert "незворотно" in tg.texts[-1]
+    assert "1 день" in tg.texts[-1]  # скільки відміток зникне
+    # Головне: звичка ще на місці.
+    assert len(await tg.api.list_habits(USER.id)) == 1
+
+
+async def test_delete_confirmed_removes_habit(tg: BotUnderTest):
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+
+    await tg.tap(f"habit:delete:{habit_id}")
+    await tg.tap(f"habit:confirm_delete:{habit_id}")
+
+    assert await tg.api.list_habits(USER.id) == []
+
+
+async def test_delete_cancelled_keeps_habit(tg: BotUnderTest):
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+
+    await tg.tap(f"habit:delete:{habit_id}")
+    await tg.tap(f"habit:open:{habit_id}")  # «Скасувати» веде в картку
+
+    assert len(await tg.api.list_habits(USER.id)) == 1
+    assert "Йога" in tg.texts[-1]
+
+
+async def test_double_confirm_delete_is_harmless(tg: BotUnderTest):
+    """Два натискання «Так, видалити» не мають дати помилку.
+
+    Друге натискання приходить на вже видалену звичку. Без перевірки
+    воно перетворилося б на 404 і технічний текст замість спокійного
+    «усе вже зроблено».
+    """
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+    await tg.tap(f"habit:delete:{habit_id}")
+
+    tg.bot.session.sent.clear()
+    u1 = tg.make_tap(f"habit:confirm_delete:{habit_id}")
+    u2 = tg.make_tap(f"habit:confirm_delete:{habit_id}")
+    await asyncio.gather(tg.feed(u1), tg.feed(u2))
+
+    assert await tg.api.list_habits(USER.id) == []
+    alerts = [t for k, t, *_ in tg.sent if k == "Alert"]
+    assert not any("не так" in a or "404" in a for a in alerts), alerts
+
+
+async def test_card_of_deleted_habit_explains_itself(tg: BotUnderTest):
+    """Кнопка картки зі старого повідомлення після видалення звички."""
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+    await tg.api.delete_habit(USER.id, habit_id)
+
+    await tg.tap(f"habit:open:{habit_id}")
+
+    alerts = [t for k, t, *_ in tg.sent if k == "Alert"]
+    assert any("вже немає" in a for a in alerts), alerts

@@ -16,13 +16,15 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, ErrorEvent
 
-from bot import checkin, menu, new_habit
+from bot import checkin, manage, menu, new_habit
 from bot.api import ApiError, HabitsAPI
-from config import API_URL, BOT_SECRET, BOT_TOKEN
+from bot.reminders import reminder_loop
+from config import API_URL, BOT_SECRET, BOT_TOKEN, REMINDER_HOUR
 
 COMMANDS = [
     BotCommand(command="habits", description="Список звичок"),
     BotCommand(command="new", description="Додати звичку"),
+    BotCommand(command="manage", description="Керувати звичками"),
     BotCommand(command="help", description="Довідка"),
 ]
 
@@ -135,10 +137,17 @@ async def main() -> None:
     dispatcher.errors.register(on_error)
 
     # Порядок має значення: aiogram перебирає роутери зверху вниз
-    # і віддає подію першому, чий фільтр підійшов. new_habit іде
-    # раніше за menu, бо всередині діалогу створення звички його
-    # обробники мають перехопити текст першими.
+    # і віддає подію першому, чий фільтр підійшов.
+    #
+    # Спершу обидва роутери з діалогами (new_habit, manage) — усередині
+    # діалогу їхні обробники мають перехопити текст раніше, ніж menu
+    # спробує розпізнати в ньому команду.
+    #
+    # checkin — останній: у ньому лежить catch-all для «нічийних»
+    # натискань, і він за визначенням має бачити подію лише тоді,
+    # коли її не забрав ніхто інший.
     dispatcher.include_router(new_habit.router)
+    dispatcher.include_router(manage.router)
     dispatcher.include_router(menu.router)
     dispatcher.include_router(checkin.router)
 
@@ -150,17 +159,38 @@ async def main() -> None:
         await bot.set_my_commands(COMMANDS)
 
         me = await bot.get_me()
-        logging.info("Бот @%s запущений. API: %s", me.username, API_URL)
+        logging.info(
+            "Бот @%s запущений. API: %s. Нагадування о %d:00",
+            me.username, API_URL, REMINDER_HOUR,
+        )
 
-        # Polling: бот сам питає Telegram «чи є новини?». Простий спосіб,
-        # не потребує ні HTTPS, ні білої IP-адреси — тому ідеальний
-        # для розробки. На сервері зазвичай переходять на webhook,
-        # де вже Telegram стукає до нас.
-        #
-        # drop_pending_updates=True викидає повідомлення, що назбиралися
-        # поки бот лежав: інакше після кожного перезапуску він відповідав
-        # би на старі команди, збиваючи людей з пантелику.
-        await dispatcher.start_polling(bot, drop_pending_updates=True)
+        # Нагадування живуть в окремій задачі, паралельно з polling —
+        # інакше цикл reminder_loop (він спить годинами) заблокував би
+        # весь бот: жоден update не оброблявся б, поки той не прокинеться.
+        reminders = asyncio.create_task(reminder_loop(bot, api))
+
+        try:
+            # Polling: бот сам питає Telegram «чи є новини?». Простий
+            # спосіб, не потребує ні HTTPS, ні білої IP-адреси — тому
+            # ідеальний для розробки. На сервері зазвичай переходять
+            # на webhook, де вже Telegram стукає до нас.
+            #
+            # drop_pending_updates=True викидає повідомлення, що
+            # назбиралися поки бот лежав: інакше після кожного
+            # перезапуску він відповідав би на старі команди, збиваючи
+            # людей з пантелику.
+            await dispatcher.start_polling(bot, drop_pending_updates=True)
+        finally:
+            # Скасовуємо задачу нагадувань і чекаємо на її завершення.
+            # Без await після cancel() задача могла б не встигнути
+            # обробити CancelledError до того, як процес почне
+            # закриватися, — і Python поскаржився б на незавершену
+            # задачу в логах.
+            reminders.cancel()
+            try:
+                await reminders
+            except asyncio.CancelledError:
+                pass
     finally:
         # Закриваємо обидва зʼєднання, навіть якщо бот падає.
         await api.close()

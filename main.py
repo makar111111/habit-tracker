@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 import stats
-from auth import CurrentUser
+from auth import CurrentUser, RequireBot
 from database import create_db_and_tables, get_session
 from models import (
     Checkin,
@@ -88,6 +88,22 @@ def update_me(data: UserUpdate, user: CurrentUser, session: SessionDep) -> UserP
     session.commit()
     session.refresh(user)
     return user
+
+
+@app.get("/telegram-users")
+def list_telegram_users(_: RequireBot, session: SessionDep) -> list[int]:
+    """Усі telegram_id користувачів бота. Для щоденної розсилки нагадувань.
+
+    Захищено RequireBot, а не CurrentUser: тут немає "поточного
+    користувача" — питання не "хто ти", а "дай мені всіх, кому писати".
+
+    Локальний користувач браузера (telegram_id=None) сюди не потрапляє —
+    надсилати йому нагадування нікуди, у нього немає Telegram-акаунта.
+    """
+    rows = session.exec(
+        select(User.telegram_id).where(User.telegram_id.is_not(None))
+    ).all()
+    return list(rows)
 
 
 # ---------- Звички ----------

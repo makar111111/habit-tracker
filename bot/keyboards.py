@@ -17,6 +17,11 @@ MAX_BUTTON_TEXT = 40
 class HabitCallback(CallbackData, prefix="habit"):
     """Що зашито в кнопку звички.
 
+    Поле action розрізняє, ЩО саме робить кнопка з цією звичкою:
+    "toggle" — відмітити/зняти, "open" — відкрити картку керування,
+    "rename" / "describe" — почати редагування, "delete" — спитати
+    підтвердження, "confirm_delete" — видалити насправді.
+
     Замість того, щоб ліпити рядок "habit:toggle:3" і потім розбирати
     його вручну, описуємо поля класом. aiogram сам збере рядок при
     створенні кнопки й сам розбере назад при натисканні — з перевіркою
@@ -104,9 +109,77 @@ def habits_keyboard(habits: list[dict]) -> InlineKeyboardMarkup:
     builder.button(
         text="➕ Нова звичка", callback_data=MenuCallback(action="new_habit")
     )
+    builder.button(text="⚙️ Керувати", callback_data=MenuCallback(action="manage"))
 
     # adjust(1) — по одній кнопці в рядок. Без цього aiogram спробував би
     # скласти їх по кілька, і довгі назви перетворилися б на кашу.
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def manage_keyboard(habits: list[dict]) -> InlineKeyboardMarkup:
+    """Список звичок у режимі керування: дотик відкриває картку.
+
+    Навмисно без позначок ✅/⬜ і серій: тут людина не відмічає, а
+    порядкує. Однакові на вигляд кнопки, що роблять різне, — найкоротший
+    шлях до випадкового натискання не туди.
+    """
+    builder = InlineKeyboardBuilder()
+
+    for habit in habits:
+        builder.button(
+            text=shorten(habit["name"]),
+            callback_data=HabitCallback(action="open", habit_id=habit["id"]),
+        )
+
+    builder.button(text="⬅️ До списку", callback_data=MenuCallback(action="habits"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def habit_card_keyboard(habit_id: int) -> InlineKeyboardMarkup:
+    """Кнопки під карткою однієї звички."""
+    builder = InlineKeyboardBuilder()
+
+    builder.button(
+        text="✏️ Перейменувати",
+        callback_data=HabitCallback(action="rename", habit_id=habit_id),
+    )
+    builder.button(
+        text="📝 Змінити опис",
+        callback_data=HabitCallback(action="describe", habit_id=habit_id),
+    )
+    builder.button(
+        text="🗑 Видалити",
+        callback_data=HabitCallback(action="delete", habit_id=habit_id),
+    )
+    builder.button(text="⬅️ Назад", callback_data=MenuCallback(action="manage"))
+
+    # Дві кнопки редагування поруч, а видалення — окремим рядком:
+    # найнебезпечніша дія не має стояти впритул до буденних.
+    builder.adjust(2, 1, 1)
+    return builder.as_markup()
+
+
+def delete_confirm_keyboard(habit_id: int) -> InlineKeyboardMarkup:
+    """Підтвердження видалення.
+
+    Окремий екран, а не одразу видалення: разом зі звичкою зникають
+    усі її відмітки, іноді за місяці. Скасувати це неможливо, тож
+    зайвий дотик тут — не тяганина, а страховка.
+    """
+    builder = InlineKeyboardBuilder()
+
+    builder.button(
+        text="🗑 Так, видалити",
+        callback_data=HabitCallback(action="confirm_delete", habit_id=habit_id),
+    )
+    # «Скасувати» веде назад у картку тієї самої звички — людина
+    # опиняється там, звідки прийшла.
+    builder.button(
+        text="⬅️ Скасувати",
+        callback_data=HabitCallback(action="open", habit_id=habit_id),
+    )
     builder.adjust(1)
     return builder.as_markup()
 

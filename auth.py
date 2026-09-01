@@ -107,3 +107,28 @@ def get_current_user(
 # Коротке ім'я, щоб не писати Depends(get_current_user) у кожному ендпоінті.
 # Так само влаштований SessionDep у main.py.
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def require_bot(x_bot_secret: str | None = Header(default=None)) -> None:
+    """Перевірка «це справді бот» — без прив'язки до конкретного користувача.
+
+    get_current_user завжди відповідає на питання "від імені кого цей
+    запит" — саме для цього й потрібен X-Telegram-Id. Але для операцій,
+    які стосуються ВСІХ telegram-користувачів одразу (розсилка
+    нагадувань — "дай мені список усіх, кому маю написати"), поняття
+    "поточний користувач" просто немає. Тому окрема, простіша перевірка:
+    той самий секрет, але без заголовка з id.
+    """
+    if not BOT_SECRET:
+        raise HTTPException(
+            status_code=503,
+            detail="Доступ для бота не налаштовано: у .env немає BOT_SECRET",
+        )
+
+    if x_bot_secret is None or not secrets.compare_digest(x_bot_secret, BOT_SECRET):
+        raise HTTPException(status_code=401, detail="Невірний секрет бота")
+
+
+# None замість User: цій залежності нема що повертати, вона лише
+# дозволяє або забороняє прохід. FastAPI все одно виконає перевірку.
+RequireBot = Annotated[None, Depends(require_bot)]
