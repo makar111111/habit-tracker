@@ -8,9 +8,55 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main>
+  <!-- Екран входу. Показується замість основного, поки немає сесії.
+       Обидва лежать у HTML одразу, а JS лише перемикає hidden: так
+       не доводиться будувати розмітку з рядків у коді. -->
+  <main id="login-screen" hidden>
     <h1>Трекер звичок</h1>
-    <p class="today">Сьогодні: <span id="today"></span></p>
+
+    <p class="login-intro">
+      Щоб побачити свої звички, увійди через Telegram —
+      той самий акаунт, що й у боті.
+    </p>
+
+    <button id="login-button" type="button">Увійти через Telegram</button>
+
+    <!-- З'являється після натискання: посилання на бота й підказка. -->
+    <div id="login-wait" hidden>
+      <p>
+        <a id="login-link" href="#" target="_blank" rel="noopener">
+          Відкрити бота
+        </a>
+        — і натисни там «Так, це я».
+      </p>
+      <p class="login-hint">Чекаю на підтвердження…</p>
+    </div>
+
+    <p id="login-error" class="error" hidden></p>
+  </main>
+
+  <main id="app-screen" hidden>
+    <h1>Трекер звичок</h1>
+    <p class="today">
+      Сьогодні: <span id="today"></span>
+      <button id="logout-button" type="button" class="link-button">вийти</button>
+    </p>
+
+    <!-- Панель прогресу за сьогодні. Головне питання, заради якого
+         відкривають трекер, — «скільки я вже зробив» — має мати
+         відповідь до того, як людина почне читати список. -->
+    <section id="progress" class="progress" hidden>
+      <div class="progress-head">
+        <span id="progress-count" class="progress-count"></span>
+        <span id="progress-note" class="progress-note"></span>
+      </div>
+      <!-- role/aria перетворюють смужку на зрозумілий для читача екрана
+           індикатор: інакше це просто два порожні <div>. -->
+      <div class="progress-track" role="progressbar"
+           aria-valuemin="0" aria-valuemax="100" id="progress-bar">
+        <div id="progress-fill" class="progress-fill"></div>
+      </div>
+    </section>
 
     <!-- Атрибут novalidate НЕ ставимо: тоді браузер сам не пустить
          порожню назву, ще до звернення до сервера. -->

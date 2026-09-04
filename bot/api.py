@@ -151,6 +151,18 @@ class HabitsAPI:
         )
         self._ok(response)
 
+    async def confirm_login(self, telegram_id: int, token: str) -> None:
+        """Підтвердити код входу у вебверсію від імені цієї людини.
+
+        Обидва заголовки тут обов'язкові й доповнюють один одного:
+        секрет доводить, що запит справді від бота, а X-Telegram-Id
+        каже, кому саме прив'язати сесію.
+        """
+        response = await self._request(
+            "POST", "/auth/confirm", telegram_id, json={"token": token}
+        )
+        self._ok(response)
+
     async def list_telegram_users(self) -> list[int]:
         """Усі telegram_id, кому бот може писати. Для розсилки нагадувань.
 

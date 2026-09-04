@@ -66,12 +66,43 @@ h1 { margin: 0 0 .25rem; font-size: 1.75rem; }
   border-radius: 10px;
 }
 
-.habit input[type="checkbox"] {
-  width: 1.35rem;
-  height: 1.35rem;
-  accent-color: var(--accent);
-  cursor: pointer;
+/* Кнопка відмітки. Велика навмисно: це головна дія застосунку,
+   і на телефоні в неї треба влучати пальцем, а не цілитись.
+   44px — рекомендований мінімум для дотику в обох мобільних
+   системах; менше — і люди починають промахуватись. */
+.check {
+  width: 2.75rem;
+  height: 2.75rem;
   flex-shrink: 0;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  background: var(--card);
+  color: #fff;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, transform .1s;
+}
+
+.check:hover { border-color: var(--accent); }
+
+/* Натиснута кнопка трохи стискається — маленький відгук на дотик,
+   який робить відмічання приємним. Саме заради цього відчуття люди
+   й повертаються в трекери щодня. */
+.check:active { transform: scale(.92); }
+
+.check[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Видимий фокус — щоб було зрозуміло, де ти, коли ходиш табом.
+   Прибирати цю рамку (а так роблять часто) означає зробити
+   застосунок непридатним без миші. */
+.check:focus-visible,
+.delete:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .habit-body { flex: 1; min-width: 0; }
@@ -81,8 +112,23 @@ h1 { margin: 0 0 .25rem; font-size: 1.75rem; }
 
 .habit-desc { font-size: .85rem; color: var(--muted); }
 
-.habit-stats { font-size: .8rem; color: var(--muted); margin-top: .2rem; }
-.streak { color: var(--accent); font-weight: 600; }
+/* Показники у два «поверхи»: серія помітна, решта — тлом.
+   flex із wrap, а не один рядок тексту: раніше на вузькому екрані
+   «усього: 38» перескакувало на новий рядок посеред фрази. */
+.habit-stats {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: .1rem .6rem;
+  font-size: .8rem;
+  color: var(--muted);
+  margin-top: .3rem;
+}
+
+.streak { font-weight: 600; }
+.streak.alive { color: var(--accent); }
+
+.habit-stats-rest { font-size: .75rem; }
 
 .delete {
   border: 0;
@@ -96,6 +142,60 @@ h1 { margin: 0 0 .25rem; font-size: 1.75rem; }
 }
 
 .delete:hover { background: #fee2e2; color: var(--danger); }
+
+/* ---------- панель прогресу за сьогодні ---------- */
+
+.progress {
+  margin-bottom: 1.5rem;
+  padding: 1rem 1.1rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.progress-head {
+  display: flex;
+  align-items: baseline;
+  gap: .5rem;
+  margin-bottom: .6rem;
+}
+
+/* Число — найбільший текст на сторінці після заголовка. Саме воно
+   відповідає на питання, заради якого відкрили застосунок. */
+.progress-count {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.progress-note { color: var(--muted); font-size: .85rem; }
+
+.progress-track {
+  height: .5rem;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  border-radius: 999px;
+  /* Смужка їде плавно, коли відмічаєш звичку: видно, що саме твоя
+     дія її зрушила. Без переходу вона просто стрибала б. */
+  transition: width .3s ease;
+}
+
+.progress-fill.full { background: #16a34a; }
+
+/* Люди, які просили зменшити анімацію в системі, не мають бачити
+   рух. Це не примха: для декого анімації спричиняють нудоту
+   й запаморочення. */
+@media (prefers-reduced-motion: reduce) {
+  .progress-fill,
+  .check { transition: none; }
+}
 
 /* ---------- службові ---------- */
 
@@ -113,19 +213,6 @@ h1 { margin: 0 0 .25rem; font-size: 1.75rem; }
 /* ---------- календар-хітмапа ---------- */
 
 .habit-row { display: flex; align-items: center; gap: .85rem; }
-
-.toggle-cal {
-  border: 0;
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  font-size: .78rem;
-  cursor: pointer;
-  padding: .15rem 0;
-  text-decoration: underline dotted;
-}
-
-.toggle-cal:hover { color: var(--accent); }
 
 .calendar {
   display: grid;
@@ -191,3 +278,44 @@ h1 { margin: 0 0 .25rem; font-size: 1.75rem; }
 }
 
 .cal-legend .cell { width: 10px; height: 10px; }
+
+/* ---------- екран входу ---------- */
+
+.login-intro {
+  max-width: 34ch;
+  margin: 1.5rem auto;
+  line-height: 1.5;
+}
+
+#login-button {
+  display: block;
+  margin: 0 auto;
+  padding: 0.7rem 1.4rem;
+  font-size: 1rem;
+}
+
+#login-wait {
+  margin-top: 1.5rem;
+}
+
+.login-hint {
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+/* Кнопка «вийти» має виглядати як посилання, а не як дія нарівні
+   з «Додати»: це рідкісна операція, і візуально кричати їй ні до чого. */
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-left: 0.6rem;
+  color: #6b7280;
+  font-size: 0.85rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  color: #111827;
+}

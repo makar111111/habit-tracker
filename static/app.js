@@ -51,10 +51,25 @@ function renderHabit(habit, stats) {
   const item = document.createElement("li");
   item.className = stats.done_today ? "habit done" : "habit";
 
-  const checkbox = document.createElement("input");
-  checkbox.type = "checkbox";
-  checkbox.checked = stats.done_today;
-  checkbox.addEventListener("change", () => toggleToday(habit.id, checkbox.checked));
+  // Відмітити звичку — це ТА САМА дія, заради якої відкривають трекер.
+  // Тому не стандартний дрібний чекбокс, а велика кнопка: у неї легко
+  // влучити пальцем на телефоні, і натискати її приємно.
+  //
+  // Це саме <button> з aria-pressed, а не <div> з обробником: кнопку
+  // видно з клавіатури, вона реагує на пробіл і Enter без жодного
+  // коду, а читач екрана каже, натиснута вона чи ні.
+  const check = document.createElement("button");
+  check.type = "button";
+  check.className = "check";
+  check.setAttribute("aria-pressed", String(Boolean(stats.done_today)));
+  // Без цього підпису читач екрана сказав би просто «кнопка»: людина
+  // не дізналася б, яку саме звичку відмічає.
+  check.setAttribute(
+    "aria-label",
+    `${stats.done_today ? "Зняти відмітку" : "Відмітити"}: ${habit.name}`
+  );
+  check.textContent = stats.done_today ? "✓" : "";
+  check.addEventListener("click", () => toggleToday(habit.id, !stats.done_today));
 
   const body = document.createElement("div");
   body.className = "habit-body";
@@ -74,72 +89,109 @@ function renderHabit(habit, stats) {
     body.append(desc);
   }
 
-  const info = document.createElement("div");
-  info.className = "habit-stats";
-  info.append(describeStats(stats));
-  body.append(info);
+  body.append(renderStats(stats));
 
   const remove = document.createElement("button");
   remove.className = "delete";
   remove.title = "Видалити звичку";
+  remove.setAttribute("aria-label", `Видалити звичку: ${habit.name}`);
   remove.textContent = "×";
-  remove.addEventListener("click", () => deleteHabit(habit));
+  remove.addEventListener("click", () => deleteHabit(habit, stats));
 
-  // Верхній поверх картки: галочка, текст, кнопка видалення.
+  // Верхній поверх картки: кнопка відмітки, текст, кнопка видалення.
   const row = document.createElement("div");
   row.className = "habit-row";
-  row.append(checkbox, body, remove);
+  row.append(check, body, remove);
 
-  // Нижній поверх: сюди потрапить календар, коли його попросять.
+  // Нижній поверх — календар. Розгорнутий ОДРАЗУ, а не за посиланням:
+  // це найінформативніша частина картки, і ховати її означало б
+  // показувати людині найменш цікаве, а найцікавіше — за кліком.
+  // Ховати можна те, чого зазвичай не потребують; тут навпаки.
   const calendarBox = document.createElement("div");
-
-  const toggle = document.createElement("button");
-  toggle.className = "toggle-cal";
-  toggle.textContent = "показати графік";
-  toggle.addEventListener("click", () => toggleCalendar(habit, toggle, calendarBox));
-  body.append(toggle);
+  if (stats.total > 0) {
+    showCalendar(habit.id, calendarBox).catch(() => {
+      // Календар — прикраса поверх головного. Якщо він не завантажився,
+      // це не привід ламати весь список: картка лишається робочою.
+      calendarBox.replaceChildren();
+    });
+  }
 
   item.append(row, calendarBox);
   return item;
 }
 
-/** Показати або сховати календар звички. */
-async function toggleCalendar(habit, toggle, container) {
-  // Календар уже відкритий — просто прибираємо його.
-  if (container.hasChildNodes()) {
-    container.replaceChildren();
-    toggle.textContent = "показати графік";
+/**
+ * Показники звички: серія великим, решта — дрібним.
+ *
+ * Раніше всі три числа стояли в один сірий рядок однаковою вагою, і
+ * найважливіше — поточна серія — губилося серед них. А коли серії не
+ * було, рядок починався з «серії немає»: заперечення там, де людина
+ * шукає привід продовжити.
+ */
+function renderStats(stats) {
+  const box = document.createElement("div");
+  box.className = "habit-stats";
+
+  if (stats.total === 0) {
+    box.textContent = "ще жодної відмітки";
+    return box;
+  }
+
+  const streak = document.createElement("span");
+  streak.className = stats.current_streak > 0 ? "streak alive" : "streak";
+  streak.textContent =
+    stats.current_streak > 0
+      ? `🔥 ${stats.current_streak} ${plural(stats.current_streak)} поспіль`
+      : "почни серію сьогодні";
+  box.append(streak);
+
+  const rest = document.createElement("span");
+  rest.className = "habit-stats-rest";
+  rest.textContent = `рекорд ${stats.longest_streak} · усього ${stats.total}`;
+  box.append(rest);
+
+  return box;
+}
+
+/**
+ * Панель «скільки зроблено сьогодні».
+ *
+ * Це головне питання, заради якого відкривають трекер, і воно має
+ * мати відповідь до того, як людина почне читати список. Бот таке
+ * вміє давно («Сьогодні відмічено: 0 з 3»), а вебверсія — ні.
+ */
+function renderProgress(habits, statsById) {
+  const panel = document.getElementById("progress");
+
+  if (habits.length === 0) {
+    panel.hidden = true;
     return;
   }
 
-  toggle.textContent = "завантаження…";
-  try {
-    clearError();
-    await showCalendar(habit.id, container);
-    toggle.textContent = "сховати графік";
-  } catch (error) {
-    toggle.textContent = "показати графік";
-    showError(error.message);
-  }
-}
+  const done = habits.filter(
+    (habit) => statsById.get(habit.id)?.done_today
+  ).length;
+  const percent = Math.round((done / habits.length) * 100);
 
-/** Текст на кшталт "серія: 4 дні · найдовша: 7 · усього: 12". */
-function describeStats(stats) {
-  const fragment = document.createDocumentFragment();
+  document.getElementById("progress-count").textContent =
+    `${done} з ${habits.length}`;
 
-  if (stats.current_streak > 0) {
-    const streak = document.createElement("span");
-    streak.className = "streak";
-    streak.textContent = `серія: ${stats.current_streak} ${plural(stats.current_streak)}`;
-    fragment.append(streak);
-    fragment.append(` · найдовша: ${stats.longest_streak} · усього: ${stats.total}`);
-  } else if (stats.total > 0) {
-    fragment.append(`серії немає · найдовша була: ${stats.longest_streak} · усього: ${stats.total}`);
-  } else {
-    fragment.append("ще жодної відмітки");
-  }
+  document.getElementById("progress-note").textContent =
+    done === habits.length ? "усе на сьогодні ✨" : "лишилось на сьогодні";
 
-  return fragment;
+  const fill = document.getElementById("progress-fill");
+  fill.style.width = `${percent}%`;
+  // Клас, а не інлайновий колір: правило «усе зроблено виглядає інакше»
+  // лишається у CSS, поруч із рештою оформлення.
+  fill.classList.toggle("full", done === habits.length);
+
+  const bar = document.getElementById("progress-bar");
+  bar.setAttribute("aria-valuenow", String(percent));
+  // Читач екрана вимовляє саме цей текст, а не «45 відсотків»:
+  // «2 з 3 звичок» людині зрозуміліше.
+  bar.setAttribute("aria-valuetext", `${done} з ${habits.length} звичок`);
+
+  panel.hidden = false;
 }
 
 /** Правильна форма слова: 1 день, 2 дні, 5 днів. */
@@ -282,6 +334,7 @@ async function load() {
       ...habits.map((habit) => renderHabit(habit, statsById.get(habit.id)))
     );
 
+    renderProgress(habits, statsById);
     document.getElementById("empty").hidden = habits.length > 0;
   } catch (error) {
     showError(`Не вдалося завантажити: ${error.message}`);
@@ -305,8 +358,17 @@ async function toggleToday(habitId, checked) {
   load();
 }
 
-async function deleteHabit(habit) {
-  if (!confirm(`Видалити «${habit.name}» разом з усіма відмітками?`)) return;
+async function deleteHabit(habit, stats) {
+  // Називаємо ЧИСЛО відміток, а не просто «з усіма». Саме воно змушує
+  // зупинитись: «видалити звичку» звучить дешево, «разом із 38 днями» —
+  // уже ні. Бот так робить давно, веб відставав.
+  const count = stats?.total ?? 0;
+  const cost =
+    count > 0
+      ? ` Разом із нею зникнуть ${count} ${plural(count)} відміток.`
+      : "";
+
+  if (!confirm(`Видалити «${habit.name}»?${cost} Це незворотно.`)) return;
 
   try {
     clearError();
@@ -338,8 +400,128 @@ async function addHabit(event) {
   load();
 }
 
+// ---------- вхід через Telegram ----------
+//
+// Браузер не знає, хто його власник у Telegram, а бот знає напевно.
+// Тому: просимо в сервера одноразовий код -> показуємо посилання на
+// бота -> людина підтверджує там -> опитуємо сервер, поки він не
+// віддасть сесію. Код при обміні згорає.
+
+let pollTimer = null;
+
+/** Показати екран входу або основний. */
+function showScreen(name) {
+  document.getElementById("login-screen").hidden = name !== "login";
+  document.getElementById("app-screen").hidden = name !== "app";
+}
+
+/** Почати вхід: узяти код і чекати підтвердження в боті. */
+async function startLogin() {
+  const button = document.getElementById("login-button");
+  const errorBox = document.getElementById("login-error");
+
+  button.disabled = true;
+  errorBox.hidden = true;
+
+  let data;
+  try {
+    data = await api("/auth/login-code", { method: "POST" });
+  } catch (error) {
+    errorBox.textContent = error.message;
+    errorBox.hidden = false;
+    button.disabled = false;
+    return;
+  }
+
+  const link = document.getElementById("login-link");
+  link.href = data.url;
+  document.getElementById("login-wait").hidden = false;
+
+  // Відкриваємо бота одразу — щоб не змушувати робити зайвий клік.
+  // Якщо браузер заблокує спливаюче вікно, посилання лишається видимим
+  // і людина натисне його сама.
+  window.open(data.url, "_blank", "noopener");
+
+  waitForConfirmation(data.token, data.expires_in);
+}
+
+/**
+ * Опитувати сервер, доки бот не підтвердить код.
+ *
+ * Опитування (poll) — найпростіший спосіб дізнатися про подію на
+ * сервері. Складніші (WebSocket, SSE) тут зайві: чекати доводиться
+ * секунди, і одне запитання на дві секунди нікого не навантажить.
+ */
+function waitForConfirmation(token, expiresIn) {
+  clearInterval(pollTimer);
+  const deadline = Date.now() + expiresIn * 1000;
+
+  pollTimer = setInterval(async () => {
+    if (Date.now() > deadline) {
+      clearInterval(pollTimer);
+      failLogin("Час вийшов. Спробуй ще раз.");
+      return;
+    }
+
+    let data;
+    try {
+      data = await api(`/auth/login-code/${token}`);
+    } catch (error) {
+      // 404 чи 410 означають, що код уже недійсний — далі питати марно.
+      clearInterval(pollTimer);
+      failLogin(error.message);
+      return;
+    }
+
+    if (data.status === "confirmed") {
+      clearInterval(pollTimer);
+      // Cookie сервер уже поставив у відповіді — далі просто працюємо.
+      showScreen("app");
+      load();
+    }
+  }, 2000);
+}
+
+function failLogin(message) {
+  const errorBox = document.getElementById("login-error");
+  errorBox.textContent = message;
+  errorBox.hidden = false;
+  document.getElementById("login-wait").hidden = true;
+  document.getElementById("login-button").disabled = false;
+}
+
+async function logout() {
+  await api("/auth/logout", { method: "POST" });
+  clearInterval(pollTimer);
+  document.getElementById("login-wait").hidden = true;
+  document.getElementById("login-button").disabled = false;
+  showScreen("login");
+}
+
 // ---------- старт ----------
 
 document.getElementById("today").textContent = toISO(new Date());
 document.getElementById("add-form").addEventListener("submit", addHabit);
-load();
+document.getElementById("login-button").addEventListener("click", startLogin);
+document.getElementById("logout-button").addEventListener("click", logout);
+
+/**
+ * З чого починати: з екрана входу чи одразу зі списку.
+ *
+ * Перевіряємо найпростішим способом — пробуємо завантажити дані.
+ * Якщо сервер відповів 401, сесії немає; будь-яка інша помилка —
+ * це вже справжня біда, і її треба показати, а не мовчки просити
+ * увійти ще раз.
+ */
+async function start() {
+  try {
+    await api("/users/me");
+  } catch (error) {
+    showScreen("login");
+    return;
+  }
+  showScreen("app");
+  load();
+}
+
+start();

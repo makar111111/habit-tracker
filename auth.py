@@ -17,19 +17,95 @@
    Зараз він означає "хто дістався до порту — той і господар".
 """
 
+import hashlib
+import hmac
 import secrets
+import time
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Cookie, Depends, Header, HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from config import BOT_SECRET
+from config import ALLOW_LOCAL_USER, BOT_SECRET, SESSION_SECRET, SESSION_TTL_SECONDS
 from database import get_session
 from models import User
 
 # Ім'я користувача вебінтерфейсу — того, у кого telegram_id порожній.
 LOCAL_USER_NAME = "Локальний користувач"
+
+# Назва cookie із сесією.
+SESSION_COOKIE = "habits_session"
+
+
+# ---------- сесії у браузері ----------
+#
+# Сесія тут БЕЗ таблиці в базі: усе потрібне лежить у самій cookie,
+# а від підробки її захищає підпис. Такий підхід називають stateless-
+# сесією. Плюс — не треба ні таблиці, ні прибирання протухлих записів;
+# мінус — сесію не можна відкликати достроково (доки не мине термін
+# або не зміниться SESSION_SECRET). Для трекера звичок обмін чесний.
+
+
+def make_session(user_id: int) -> str:
+    """Зібрати вміст cookie: хто, доки, і підпис.
+
+    Формат: user_id.термін.підпис — наприклад "7.1790000000.a3f9...".
+    Перші дві частини відкриті (їх видно будь-кому), і це нормально:
+    таємниці в них немає. Захищає підпис — без SESSION_SECRET підібрати
+    його неможливо, тож дописати собі чужий user_id не вийде.
+    """
+    expires_at = int(time.time()) + SESSION_TTL_SECONDS
+    payload = f"{user_id}.{expires_at}"
+    return f"{payload}.{_sign(payload)}"
+
+
+def read_session(cookie: str | None) -> int | None:
+    """Дістати user_id з cookie, або None, якщо їй не можна вірити."""
+    if not cookie or not SESSION_SECRET:
+        return None
+
+    parts = cookie.split(".")
+    if len(parts) != 3:
+        return None
+
+    user_id_raw, expires_raw, signature = parts
+
+    # Спершу підпис, і лише потім усе інше. Порядок навмисний: поки
+    # підпис не перевірено, вміст cookie — це рядок від невідомо кого,
+    # і робити з ним щось складніше за порівняння не варто.
+    #
+    # Порівнюємо БАЙТИ, а не рядки. Причина не в стилі: compare_digest
+    # на рядках із не-ASCII символами кидає TypeError. Cookie ж повністю
+    # у руках того, хто її надсилає, тож кирилиця в підписі — це не
+    # екзотика, а найпростіший спосіб зронити сервер у 500. У байтах
+    # такої проблеми немає: там будь-який вміст просто байти.
+    expected = _sign(f"{user_id_raw}.{expires_raw}").encode()
+    if not hmac.compare_digest(expected, signature.encode()):
+        return None
+
+    try:
+        user_id, expires_at = int(user_id_raw), int(expires_raw)
+    except ValueError:
+        return None
+
+    if expires_at < time.time():
+        return None
+
+    return user_id
+
+
+def _sign(payload: str) -> str:
+    """HMAC-SHA256 від вмісту cookie на основі SESSION_SECRET.
+
+    Чому HMAC, а не просто хеш: звичайний sha256(секрет + дані) уразливий
+    до атаки подовженням довжини — маючи хеш, можна дописати даних і
+    порахувати новий, не знаючи секрету. HMAC збудований так, що цей
+    трюк не працює, і саме тому для підпису беруть його, а не хеш.
+    """
+    return hmac.new(
+        SESSION_SECRET.encode(), payload.encode(), hashlib.sha256
+    ).hexdigest()
 
 
 def get_or_create_user(
@@ -73,10 +149,38 @@ def get_current_user(
     # значення буде відхилено ще до входу в цю функцію.
     x_telegram_id: int | None = Header(default=None),
     x_bot_secret: str | None = Header(default=None),
+    habits_session: str | None = Cookie(default=None),
 ) -> User:
-    """Визначити користувача запиту. Використовується в кожному ендпоінті."""
+    """Визначити користувача запиту. Використовується в кожному ендпоінті.
+
+    Способів упізнати три, і перевіряються вони саме в цьому порядку:
+
+    1. Cookie сесії — браузер, який уже увійшов через бота.
+    2. Заголовки бота — сам бот, від імені конкретної людини.
+    3. Локальний режим — запит зовсім без доказів. Раніше так працював
+       увесь вебінтерфейс; тепер це лише зручність для розробки, і за
+       замовчуванням він ВИМКНЕНИЙ (див. ALLOW_LOCAL_USER у config.py).
+
+    Cookie попереду заголовків не через більшу довіру, а тому що це
+    різні клієнти: cookie шле браузер, заголовки — бот, і одночасно
+    вони не приходять.
+    """
+    user_id = read_session(habits_session)
+    if user_id is not None:
+        user = session.get(User, user_id)
+        if user is not None:
+            return user
+        # Підпис правильний, а користувача немає — його видалили вже
+        # після видачі cookie. Не помилка: просто йдемо далі, ніби
+        # cookie й не було.
+
     if x_telegram_id is None:
-        # Заголовків немає — це браузер, локальний режим.
+        if not ALLOW_LOCAL_USER:
+            raise HTTPException(
+                status_code=401,
+                detail="Потрібен вхід. Відкрий сторінку застосунку і "
+                       "увійди через Telegram.",
+            )
         return get_or_create_user(session, None, LOCAL_USER_NAME)
 
     # Далі — запит нібито від бота, і його треба перевірити.

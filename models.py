@@ -1,6 +1,6 @@
 """Опис даних: як користувач, звичка та відмітка виглядають у базі й у запитах."""
 
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
@@ -38,6 +38,32 @@ class UserPublic(SQLModel):
     id: int
     telegram_id: int | None
     name: str
+
+
+class LoginToken(SQLModel, table=True):
+    """Одноразовий код, яким браузер доводить, що за ним та сама людина,
+    що й у Telegram.
+
+    Навіщо взагалі: у браузера немає жодного способу дізнатися, хто його
+    власник у Telegram. Тому браузер просить у сервера випадковий код,
+    показує посилання t.me/бот?start=КОД, а людина відкриває його вже
+    у своєму Telegram — і бот, який достеменно знає, хто до нього
+    звернувся, підтверджує цей код. Далі браузер обмінює код на сесію.
+
+    Код — це, по суті, пароль на п'ять хвилин: хто його знає, той і
+    отримає сесію. Звідси три правила, що діють нижче й у main.py:
+    він випадковий (не вгадаєш), короткоживучий (created_at + TTL)
+    і одноразовий (після обміну запис видаляється).
+    """
+
+    # Сам код і є первинним ключем: шукати завжди будемо саме за ним.
+    token: str = Field(primary_key=True)
+
+    created_at: datetime = Field(default_factory=datetime.now)
+
+    # Порожнє, поки бот не підтвердив. Щойно тут з'явиться id —
+    # браузер зможе обміняти код на сесію.
+    user_id: int | None = Field(default=None, foreign_key="user.id")
 
 
 class UserUpdate(SQLModel):

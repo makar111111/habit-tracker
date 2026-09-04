@@ -1,17 +1,30 @@
 """Трекер звичок: ендпоінти API та віддача сторінки застосунку."""
 
+import secrets
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 import stats
-from auth import CurrentUser, RequireBot
+from auth import (
+    SESSION_COOKIE,
+    CurrentUser,
+    RequireBot,
+    get_or_create_user,
+    make_session,
+)
+from config import (
+    BOT_USERNAME,
+    LOGIN_TOKEN_TTL_SECONDS,
+    SESSION_SECRET,
+    SESSION_TTL_SECONDS,
+)
 from database import create_db_and_tables, get_session
 from models import (
     Checkin,
@@ -21,6 +34,7 @@ from models import (
     HabitPublic,
     HabitStats,
     HabitUpdate,
+    LoginToken,
     User,
     UserPublic,
     UserUpdate,
@@ -64,6 +78,118 @@ def get_habit_or_404(habit_id: int, user: User, session: Session) -> Habit:
     if habit is None or habit.user_id != user.id:
         raise HTTPException(status_code=404, detail="Звичку не знайдено")
     return habit
+
+
+# ---------- Вхід із браузера через бота ----------
+#
+# Потік цілком: браузер просить код -> показує посилання на бота ->
+# людина відкриває його у своєму Telegram і підтверджує -> бот каже API
+# «код такий-то належить мені» -> браузер обмінює код на cookie сесії.
+#
+# Суть у тому, що браузер не знає, хто його власник у Telegram, а бот
+# знає напевно. Код — це естафетна паличка між ними.
+
+
+@app.post("/auth/login-code", status_code=201)
+def create_login_code(session: SessionDep) -> dict:
+    """Видати браузеру одноразовий код і посилання на бота."""
+    if not SESSION_SECRET or not BOT_USERNAME:
+        raise HTTPException(
+            status_code=503,
+            detail="Вхід не налаштовано: у .env потрібні SESSION_SECRET "
+                   "і BOT_USERNAME",
+        )
+
+    # token_urlsafe(32) — 32 випадкові байти. Підібрати перебором
+    # неможливо, а саме на це й покладається безпека всього потоку.
+    token = secrets.token_urlsafe(32)
+    session.add(LoginToken(token=token))
+    session.commit()
+
+    return {
+        "token": token,
+        "url": f"https://t.me/{BOT_USERNAME}?start={token}",
+        "expires_in": LOGIN_TOKEN_TTL_SECONDS,
+    }
+
+
+@app.post("/auth/confirm")
+def confirm_login_code(
+    data: dict, user: CurrentUser, _: RequireBot, session: SessionDep
+) -> dict:
+    """Бот підтверджує код від імені людини, яка його відкрила.
+
+    Захищено і RequireBot, і CurrentUser: секрет доводить, що це наш бот,
+    а X-Telegram-Id каже, кому саме прив'язати код. Обидва потрібні —
+    без другого бот міг би підтвердити код, але не було б кого записати.
+    """
+    token = str(data.get("token", ""))
+    login = session.get(LoginToken, token)
+
+    if login is None or _is_expired(login):
+        raise HTTPException(status_code=404, detail="Код недійсний або протермінований")
+
+    login.user_id = user.id
+    session.add(login)
+    session.commit()
+    return {"status": "confirmed"}
+
+
+@app.get("/auth/login-code/{token}")
+def poll_login_code(token: str, response: Response, session: SessionDep) -> dict:
+    """Браузер питає: код уже підтверджено? Якщо так — видати сесію.
+
+    Тут код і згорає: після обміну запис видаляється, тож повторно
+    тим самим кодом сесію не отримати. Це важливо саме тому, що код
+    видно в адресному рядку Telegram і він може лишитись в історії.
+    """
+    login = session.get(LoginToken, token)
+
+    if login is None:
+        raise HTTPException(status_code=404, detail="Код недійсний")
+
+    if _is_expired(login):
+        session.delete(login)
+        session.commit()
+        raise HTTPException(status_code=410, detail="Код протермінований")
+
+    if login.user_id is None:
+        return {"status": "pending"}
+
+    user_id = login.user_id
+    session.delete(login)
+    session.commit()
+
+    response.set_cookie(
+        SESSION_COOKIE,
+        make_session(user_id),
+        max_age=SESSION_TTL_SECONDS,
+        # httponly — cookie недосяжна для JavaScript. Якщо на сторінку
+        # колись просочиться чужий скрипт, він не зможе її вкрасти.
+        httponly=True,
+        # samesite=lax — браузер не надішле cookie на запити з чужих
+        # сайтів, що прибирає цілий клас атак (CSRF).
+        samesite="lax",
+    )
+    return {"status": "confirmed"}
+
+
+@app.post("/auth/logout")
+def logout(response: Response) -> dict:
+    """Вийти: прибрати cookie.
+
+    Сама сесія при цьому лишається технічно дійсною до кінця терміну —
+    так влаштовані підписані cookie без таблиці в базі. Для трекера
+    звичок прийнятно; там, де це не так, тримають список сесій у базі.
+    """
+    response.delete_cookie(SESSION_COOKIE)
+    return {"status": "logged_out"}
+
+
+def _is_expired(login: LoginToken) -> bool:
+    return login.created_at < datetime.now() - timedelta(
+        seconds=LOGIN_TOKEN_TTL_SECONDS
+    )
 
 
 # ---------- Користувач ----------
