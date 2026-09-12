@@ -126,11 +126,17 @@ export function weekdaySeries(
   }));
 }
 
-/** Підсумкові числа для карток угорі екрана. */
+/**
+ * Підсумкові числа для карток угорі екрана.
+ *
+ * Тут рахується тільки те, що стосується ПЕРІОДУ. Показник «за весь
+ * час» свідомо відсутній: на вхід приходять відмітки за обмежене вікно
+ * (див. CHECKIN_WINDOW_DAYS), і `habit.days.size` дав би не всю історію,
+ * а довжину вікна — число, схоже на правду й тому особливо підступне.
+ * Правильне значення віддає сервер у полі `total` з `/stats`.
+ */
 export function summary(habits: HabitDays[], today: Date, days: number) {
   const period = lastDays(today, days).map(toISO);
-
-  const totalCheckins = habits.reduce((sum, habit) => sum + habit.days.size, 0);
 
   const doneInPeriod = habits.reduce(
     (sum, habit) => sum + period.filter((iso) => habit.days.has(iso)).length,
@@ -147,7 +153,6 @@ export function summary(habits: HabitDays[], today: Date, days: number) {
   ).length;
 
   return {
-    totalCheckins,
     rate: possible === 0 ? 0 : Math.round((doneInPeriod / possible) * 100),
     activeDays,
     days,

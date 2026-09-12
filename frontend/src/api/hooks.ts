@@ -22,8 +22,30 @@ import {
 
 import * as api from "./client";
 import { isUnauthorized } from "./client";
-import { toISO } from "../lib/dates";
+import { addDays, toISO } from "../lib/dates";
 import type { Habit, HabitStats, HabitWithStats, User } from "./types";
+
+/**
+ * Скільки днів відміток тягнемо з сервера.
+ *
+ * Одне число на весь застосунок, і саме тому воно таке: теплова карта
+ * показує 84 дні (12 тижнів), аналітика — до 90. Беремо 120 із запасом,
+ * і обидва екрани користуються ОДНИМ кешем, бо ключ у них збігається.
+ *
+ * Спершу тут меж не було взагалі — `listCheckins` просила всю історію.
+ * На звичці віком у місяць різниці не видно, а через три роки це понад
+ * тисяча записів, щоб намалювати 84 квадратики.
+ *
+ * Важливий наслідок: підсумок «за весь час» рахувати з цих даних НЕ
+ * МОЖНА — це вікно, а не вся історія. Таке число бере `/stats`, де воно
+ * рахується в базі по всіх рядках (поле `total`).
+ */
+export const CHECKIN_WINDOW_DAYS = 120;
+
+/** Найраніший день, який просимо в сервера. */
+function windowStart(): string {
+  return toISO(addDays(new Date(), -(CHECKIN_WINDOW_DAYS - 1)));
+}
 
 /**
  * Ключі кешу в одному місці.
@@ -36,7 +58,16 @@ export const keys = {
   me: ["me"] as const,
   habits: ["habits"] as const,
   stats: ["stats"] as const,
-  checkins: (habitId: number) => ["checkins", habitId] as const,
+
+  // Період входить у ключ: дані за різні вікна — це різні дані, і
+  // складати їх в один запис кешу означало б показувати вчорашній
+  // діапазон після опівночі.
+  checkins: (habitId: number, since: string) => ["checkins", habitId, since] as const,
+
+  // Для скидання кешу: без періоду ключ стає ПРЕФІКСОМ і накриває всі
+  // періоди цієї звички одразу. Саме так працює invalidateQueries —
+  // за збігом початку ключа, а не цілком.
+  checkinsOf: (habitId: number) => ["checkins", habitId] as const,
 };
 
 // ---------- Читання ----------
@@ -115,11 +146,13 @@ function emptyStats(habitId: number): HabitStats {
   };
 }
 
-/** Усі відмітки однієї звички — для теплової карти й графіків. */
+/** Відмітки однієї звички за вікно CHECKIN_WINDOW_DAYS — для теплової карти. */
 export function useCheckins(habitId: number, enabled = true) {
+  const since = windowStart();
+
   return useQuery({
-    queryKey: keys.checkins(habitId),
-    queryFn: () => api.listCheckins(habitId),
+    queryKey: keys.checkins(habitId, since),
+    queryFn: () => api.listCheckins(habitId, { since }),
     enabled,
   });
 }
@@ -136,10 +169,14 @@ export function useCheckins(habitId: number, enabled = true) {
  * календар і графіки не ходять у мережу двічі за одним і тим самим.
  */
 export function useAllCheckins(habitIds: number[], enabled: boolean) {
+  const since = windowStart();
+
   const results = useQueries({
     queries: habitIds.map((id) => ({
-      queryKey: keys.checkins(id),
-      queryFn: () => api.listCheckins(id),
+      // Ключ і період ті самі, що в useCheckins — тому розгорнутий
+      // календар і графіки ходять у мережу один раз на двох.
+      queryKey: keys.checkins(id, since),
+      queryFn: () => api.listCheckins(id, { since }),
       enabled,
     })),
   });
@@ -207,7 +244,7 @@ export function useToggleCheckin() {
       // порахувати найдовшу серію за всю історію, маючи лише підсумки,
       // неможливо. Тому останнє слово лишається за сервером.
       void client.invalidateQueries({ queryKey: keys.stats });
-      void client.invalidateQueries({ queryKey: keys.checkins(variables.habitId) });
+      void client.invalidateQueries({ queryKey: keys.checkinsOf(variables.habitId) });
     },
   });
 }

@@ -82,21 +82,35 @@ export function AnalyticsScreen({ items, today }: Props) {
 
   const bestStreak = Math.max(...items.map((item) => item.stats.longest_streak), 0);
 
+  // «За весь час» береться зі статистики сервера, а не з завантажених
+  // відміток: ті приходять лише за останнє вікно днів. Заразом це
+  // дешевше — число вже пораховане в базі.
+  const totalCheckins = items.reduce((sum, item) => sum + item.stats.total, 0);
+
   // Осі й сітка навмисно бліді: дані мають бути помітнішими за лінійку,
   // якою їх міряють.
   const axis = { stroke: colors.border, tick: { fill: colors.muted, fontSize: 11 } };
 
   return (
     <>
-      {/* Фільтри — одним рядком над графіками, щоб було видно, до чого
-          вони застосовуються. */}
+      {/*
+        Фільтри — одним рядком над графіками, щоб було видно, до чого
+        вони застосовуються.
+
+        Тут `aria-pressed`, а не `aria-selected`, як у вкладках. Різниця
+        не косметична: `aria-selected` дозволений лише на ролях кшталту
+        `tab` чи `option` і на звичайній кнопці ігнорується. А це саме
+        кнопки-перемикачі — вони не відкривають окремих панелей, а
+        змінюють дані вже видимих графіків. Для такого стану в ARIA
+        існує саме `aria-pressed`, і на кнопці він працює.
+      */}
       <div className="tabs" role="group" aria-label="Період">
         {PERIODS.map((period) => (
           <button
             key={period.days}
             type="button"
             className="tab"
-            aria-selected={days === period.days}
+            aria-pressed={days === period.days}
             onClick={() => setDays(period.days)}
           >
             {period.label}
@@ -106,7 +120,7 @@ export function AnalyticsScreen({ items, today }: Props) {
 
       <div className="cards">
         <StatCard value={`${totals.rate}%`} label={`виконано за ${days} днів`} />
-        <StatCard value={totals.totalCheckins} label="відміток за весь час" />
+        <StatCard value={totalCheckins} label="відміток за весь час" />
         <StatCard value={bestStreak} label={`найдовша серія, ${pluralDays(bestStreak)}`} />
         <StatCard value={totals.activeDays} label={`активних днів із ${days}`} />
       </div>

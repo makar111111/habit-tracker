@@ -5,39 +5,69 @@
  * (`--bg`, `--text`, …), а перемикання теми — це заміна одного атрибута
  * `data-theme` на `<html>`. CSS далі сам підставляє інший набір значень.
  * React про кольори не знає нічого й перемальовувати нічого не мусить.
+ *
+ * Головне розділення в цьому файлі: ПОКАЗАТИ тему і ЗАПАМ'ЯТАТИ вибір —
+ * різні дії, і вони навмисно розведені по різних функціях. Спершу вони
+ * були склеєні в одній, і це давало неочевидну ваду: сам факт відкриття
+ * сторінки записував тему у сховище, ніби людина її обрала. Після цього
+ * системне налаштування переставало на щось впливати назавжди.
  */
 
 export type Theme = "light" | "dark";
 
 const STORAGE_KEY = "habits-theme";
 
-/**
- * Прочитати збережений вибір, а якщо його немає — спитати систему.
- *
- * Різниця принципова: «людина натиснула перемикач» важливіше за
- * «в системі темно». Тому збережене значення має пріоритет, і людина,
- * яка свідомо обрала світлу тему на темному ноутбуці, отримає світлу.
- */
-export function readTheme(): Theme {
+/** Збережений вибір або `null`, якщо людина нічого не обирала. */
+export function savedTheme(): Theme | null {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === "light" || saved === "dark") return saved;
+    return saved === "light" || saved === "dark" ? saved : null;
   } catch {
     // Приватний режим або заборонені cookie: localStorage кидає виняток
     // навіть на читання. Не привід ронити застосунок.
+    return null;
   }
+}
 
-  return prefersDark() ? "dark" : "light";
+/**
+ * Яку тему показувати зараз.
+ *
+ * Пріоритет: свідомий вибір людини важливіший за налаштування системи.
+ * Хто обрав світлу тему на темному ноутбуці — отримає світлу.
+ */
+export function readTheme(): Theme {
+  return savedTheme() ?? (prefersDark() ? "dark" : "light");
 }
 
 export function prefersDark(): boolean {
-  // matchMedia немає в дуже старих браузерах і в частині тестових
-  // середовищ, тому перевіряємо саму наявність функції.
-  return typeof window.matchMedia === "function"
-    && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  return darkQuery()?.matches ?? false;
 }
 
-/** Застосувати тему до сторінки й запам'ятати вибір. */
+/** `null` у середовищах без matchMedia — трапляється в тестах. */
+function darkQuery(): MediaQueryList | null {
+  if (typeof window.matchMedia !== "function") return null;
+  return window.matchMedia("(prefers-color-scheme: dark)");
+}
+
+/**
+ * Стежити за перемиканням теми в системі.
+ *
+ * Має сенс лише поки людина не зробила власного вибору: після нього
+ * системні зміни ігноруються. Повертає функцію відписки.
+ */
+export function watchSystemTheme(onChange: (theme: Theme) => void): () => void {
+  const query = darkQuery();
+  if (query === null) return () => {};
+
+  const handler = (event: MediaQueryListEvent) => {
+    onChange(event.matches ? "dark" : "light");
+  };
+
+  query.addEventListener("change", handler);
+  return () => query.removeEventListener("change", handler);
+}
+
+/** Показати тему. Нічого не запам'ятовує — лише чіпає DOM. */
 export function applyTheme(theme: Theme): void {
   document.documentElement.dataset.theme = theme;
 
@@ -45,7 +75,10 @@ export function applyTheme(theme: Theme): void {
   // елементи: смуги прокрутки, поля вводу, календарик у date-полі.
   // Без цього рядка на темному тлі лишається сліпучо-біла прокрутка.
   document.documentElement.style.colorScheme = theme;
+}
 
+/** Запам'ятати ВИБІР. Викликається тільки у відповідь на дію людини. */
+export function saveTheme(theme: Theme): void {
   try {
     localStorage.setItem(STORAGE_KEY, theme);
   } catch {

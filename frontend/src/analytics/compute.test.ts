@@ -108,7 +108,6 @@ describe("summary", () => {
 
     // 4 відмітки з можливих 20 (2 звички × 10 днів) = 20%.
     expect(result.rate).toBe(20);
-    expect(result.totalCheckins).toBe(4);
     // Активні дні — коли зроблено бодай щось: сьогодні, вчора, позавчора.
     expect(result.activeDays).toBe(3);
   });
@@ -117,12 +116,20 @@ describe("summary", () => {
     expect(summary([], TODAY, 30).rate).toBe(0);
   });
 
-  it("рахує totalCheckins за весь час, а rate — лише за період", () => {
-    // Відмітка 100 днів тому входить у загальну суму, але не в відсоток.
+  it("не зараховує в rate те, що поза періодом", () => {
     const habits = [habit("Йога", back(0, 100))];
-    const result = summary(habits, TODAY, 10);
+    expect(summary(habits, TODAY, 10).rate).toBe(10); // 1 із 10 днів
+  });
 
-    expect(result.totalCheckins).toBe(2);
-    expect(result.rate).toBe(10); // 1 із 10 днів
+  it("не віддає жодного показника «за весь час»", () => {
+    // Навмисна перевірка ВІДСУТНОСТІ поля.
+    //
+    // На вхід сюди приходить лише вікно останніх днів, тому будь-яке
+    // число «за весь час», пораховане тут, було б насправді довжиною
+    // вікна. Найгірше в такій помилці те, що вона правдоподібна:
+    // число схоже на справжнє, поки звичці не виповниться пів року.
+    // Правильне значення бере `/stats`, де воно рахується в базі.
+    const result = summary([habit("Йога", back(0, 1))], TODAY, 10);
+    expect(result).not.toHaveProperty("totalCheckins");
   });
 });

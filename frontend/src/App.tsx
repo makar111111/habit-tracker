@@ -3,9 +3,11 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { isUnauthorized, markLoggedIn, useHabitsWithStats, useLogout, useMe } from "./api/hooks";
 import { AddHabitForm } from "./components/AddHabitForm";
+import { ErrorBanner } from "./components/ErrorBanner";
 import { HabitList } from "./components/HabitList";
 import { LoginScreen } from "./components/LoginScreen";
 import { ProgressPanel } from "./components/ProgressPanel";
+import { Tabs } from "./components/Tabs";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { formatShort } from "./lib/dates";
 
@@ -29,6 +31,11 @@ const AnalyticsScreen = lazy(() =>
 );
 
 type Tab = "today" | "analytics";
+
+const TABS = [
+  { value: "today" as const, label: "Сьогодні" },
+  { value: "analytics" as const, label: "Аналітика" },
+];
 
 export function App() {
   const client = useQueryClient();
@@ -83,43 +90,37 @@ export function App() {
         </button>
       </p>
 
-      {/* role="tablist" без повного набору ARIA був би гіршим за його
-          відсутність, тому тут проста група кнопок із aria-selected. */}
-      <div className="tabs" role="group" aria-label="Розділи">
-        <button
-          type="button"
-          className="tab"
-          aria-selected={tab === "today"}
-          onClick={() => setTab("today")}
-        >
-          Сьогодні
-        </button>
-        <button
-          type="button"
-          className="tab"
-          aria-selected={tab === "analytics"}
-          onClick={() => setTab("analytics")}
-        >
-          Аналітика
-        </button>
-      </div>
+      <Tabs items={TABS} value={tab} onChange={setTab} label="Розділи" />
 
       {error && <p className="error">{error.message}</p>}
+      <ErrorBanner />
 
-      {tab === "today" ? (
-        <>
-          <ProgressPanel items={items} />
-          <AddHabitForm />
-          <HabitList items={items} isLoading={isLoading} today={today} />
-        </>
-      ) : (
-        // Suspense показує запасний вміст, поки шматок із графіками
-        // летить по мережі. Без нього React кинув би помилку: він не
-        // має права малювати компонент, якого ще немає.
-        <Suspense fallback={<div className="skeleton" style={{ height: 200 }} />}>
-          <AnalyticsScreen items={items} today={today} />
-        </Suspense>
-      )}
+      {/* id і aria-labelledby зв'язують панель із її вкладкою — без
+          цього зв'язку роль tab ні на що не вказує. */}
+      <div
+        role="tabpanel"
+        id={`panel-${tab}`}
+        aria-labelledby={`tab-${tab}`}
+        // Панель має бути досяжною з клавіатури: зі списку вкладок
+        // Tab веде саме сюди, і якщо всередині немає нічого фокусованого
+        // (порожній список звичок), фокус має лягти на саму панель.
+        tabIndex={0}
+      >
+        {tab === "today" ? (
+          <>
+            <ProgressPanel items={items} />
+            <AddHabitForm />
+            <HabitList items={items} isLoading={isLoading} today={today} />
+          </>
+        ) : (
+          // Suspense показує запасний вміст, поки шматок із графіками
+          // летить по мережі. Без нього React кинув би помилку: він не
+          // має права малювати компонент, якого ще немає.
+          <Suspense fallback={<div className="skeleton" style={{ height: 200 }} />}>
+            <AnalyticsScreen items={items} today={today} />
+          </Suspense>
+        )}
+      </div>
     </main>
   );
 }
