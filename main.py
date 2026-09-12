@@ -3,10 +3,11 @@
 import secrets
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
@@ -443,9 +444,38 @@ def index() -> RedirectResponse:
     return RedirectResponse("/app/")
 
 
+# Зібраний фронтенд. На відміну від старої теки static/, цих файлів
+# немає в репозиторії: вони з'являються після `npm run build` у frontend/
+# і навмисно занесені в .gitignore — зібраний код у git не місце,
+# він відтворюється з вихідного однією командою.
+FRONTEND_DIR = Path(__file__).parent / "frontend" / "dist"
+
+_MISSING_BUILD_PAGE = """
+<!DOCTYPE html>
+<html lang="uk"><head><meta charset="utf-8"><title>Фронтенд не зібрано</title></head>
+<body style="font: 16px/1.6 system-ui; max-width: 40rem; margin: 4rem auto; padding: 0 1rem">
+  <h1>Фронтенд не зібрано</h1>
+  <p>API працює — подивитися його можна на <a href="/docs">/docs</a>.
+     А от сторінки застосунку немає: теки <code>frontend/dist</code> не існує.</p>
+  <p>Зібрати:</p>
+  <pre style="background:#f4f4f5;padding:1rem;border-radius:8px">cd frontend
+npm install
+npm run build</pre>
+</body></html>
+"""
+
 # mount підключає цілу теку як статичні файли: браузер зможе забрати
-# /app/index.html, /app/style.css і /app/app.js.
+# /app/index.html і /app/assets/*.js.
 # html=True означає "на /app/ віддавай index.html".
 # Робимо це В КІНЦІ файлу навмисно: FastAPI перевіряє маршрути зверху вниз,
 # і /habits має знайтися раніше, ніж справа дійде до статики.
-app.mount("/app", StaticFiles(directory="static", html=True), name="static")
+if FRONTEND_DIR.is_dir():
+    app.mount("/app", StaticFiles(directory=FRONTEND_DIR, html=True), name="static")
+else:
+    # StaticFiles на неіснуючій теці кидає виняток ПРИ СТАРТІ — застосунок
+    # просто не піднявся б. Для людини, яка щойно склонувала репозиторій
+    # і ще не бачила слова "npm", це виглядало б як зламаний проєкт.
+    # Тому замість падіння — сторінка з інструкцією.
+    @app.get("/app/{path:path}", include_in_schema=False)
+    def frontend_not_built(path: str) -> HTMLResponse:
+        return HTMLResponse(_MISSING_BUILD_PAGE, status_code=503)

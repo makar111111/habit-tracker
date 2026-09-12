@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="uk">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Трекер звичок</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9989;</text></svg>"
+    />
+
+    <!--
+      Тема застосовується ДО того, як завантажиться React. Якби ми чекали
+      на React, темна тема вмикалася б із запізненням у кілька сотень
+      мілісекунд — і користувач у темряві встиг би отримати спалах білим
+      екраном. Англійською це так і називають: FOUC, flash of unstyled
+      content. Скрипт крихітний і навмисно вбудований у сторінку,
+      а не винесений у файл: окремий файл — це ще один похід у мережу.
+    -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("habits-theme");
+          var system = window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light";
+          document.documentElement.dataset.theme = saved || system;
+        } catch (e) {
+          // localStorage недоступний (приватний режим, вимкнені cookie).
+          // Не привід ронити сторінку — лишаємо світлу тему за замовчуванням.
+          document.documentElement.dataset.theme = "light";
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

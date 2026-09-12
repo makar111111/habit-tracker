@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+
+    // Vite сам перетворює TypeScript на JavaScript (через esbuild) і при
+    // цьому типи НЕ перевіряє — йому важлива лише швидкість. Тому tsc тут
+    // працює виключно як перевіряльник: noEmit каже "нічого не записуй на
+    // диск, тільки скажи, де я помилився". Саме тому в package.json команда
+    // build виглядає як `tsc --noEmit && vite build`: спершу перевірка,
+    // потім збірка. Без першої половини помилка типів доїхала б до бандла.
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+
+    // strict вмикає одразу пачку перевірок, головна з яких —
+    // strictNullChecks: тоді `habit.description` типу `string | null`
+    // не можна просто так передати туди, де чекають `string`.
+    // Саме заради цього ми й брали TypeScript.
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+
+    "types": ["vitest/globals", "@testing-library/jest-dom"]
+  },
+  "include": ["src", "vite.config.ts"]
+}

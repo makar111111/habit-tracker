@@ -36,8 +36,47 @@ jobs:
           # ще й те, що застосунок стартує без налаштувань.
           BOT_SECRET: ""
 
+  # Фронтенд перевіряється окремим завданням і ПАРАЛЕЛЬНО з pytest:
+  # між ними немає залежності, тож черга тут лише марно додавала б
+  # хвилини до кожного прогону.
+  frontend:
+    runs-on: ubuntu-latest
+
+    # Усі кроки виконуються в теці frontend/ — інакше кожен рядок
+    # починався б із `cd frontend &&`.
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          # Де шукати lock-файл для кешу. Без цього рядка action шукає
+          # його в корені репозиторію — а там його немає.
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Встановити залежності
+        run: npm ci
+
+      - name: Перевірити типи
+        run: npx tsc --noEmit
+
+      - name: Прогнати тести
+        run: npm test
+
+      # Збірка — теж перевірка. Помилка, яку не бачить ні tsc, ні
+      # vitest (наприклад, імпорт файлу, якого немає), спливає саме тут.
+      - name: Зібрати
+        run: npm run build
+
   # Окремим завданням: чи взагалі збирається образ. Не запускає його —
   # лише перевіряє, що Dockerfile не зламали черговою правкою.
+  # Після переходу на багатоетапну збірку це завдання заразом перевіряє
+  # і збірку фронтенду в чистому Linux-оточенні.
   docker:
     runs-on: ubuntu-latest
 

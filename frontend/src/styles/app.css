@@ -1,0 +1,579 @@
+/* Вигляд застосунку. Жодної логіки — тільки те, як це виглядає. */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 1.5rem 1rem 4rem;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Перехід кольору при зміні теми: без нього перемикач спрацьовує
+     різким миготінням, з ним — м'яким переливом. */
+  transition: background var(--speed), color var(--speed);
+}
+
+.shell {
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+/* ---------- шапка ---------- */
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.top h1 {
+  margin: 0;
+  font-size: 1.6rem;
+  letter-spacing: -0.02em;
+  /* margin-right: auto відсуває все наступне до правого краю —
+     простіше за окремий розпірний елемент. */
+  margin-right: auto;
+}
+
+.subline {
+  margin: 0 0 1.25rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text);
+  font-size: 1.05rem;
+  cursor: pointer;
+  transition: background var(--speed), border-color var(--speed);
+}
+
+.icon-button:hover {
+  background: var(--card-hover);
+  border-color: var(--border-strong);
+}
+
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  color: var(--text);
+}
+
+/* Фокус видимий скрізь і однаковий. :focus-visible, а не :focus —
+   тоді рамка з'являється при керуванні з клавіатури, але не обводить
+   кнопку після звичайного кліку мишею. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- вкладки ---------- */
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  padding: 0.5rem 0.9rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  transition: color var(--speed), border-color var(--speed);
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab[aria-selected="true"] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 500;
+}
+
+/* ---------- панель прогресу ---------- */
+
+.progress {
+  margin-bottom: 1.25rem;
+  padding: 0.9rem 1rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.progress-count {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-note {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.progress-track {
+  height: 8px;
+  background: var(--heat-0);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 300ms ease;
+}
+
+.progress-fill.complete {
+  background: var(--success);
+}
+
+/* ---------- форма додавання ---------- */
+
+.add-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.add-form input {
+  flex: 1 1 10rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+}
+
+.add-form input::placeholder {
+  color: var(--muted);
+}
+
+.primary {
+  padding: 0.6rem 1.1rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: filter var(--speed);
+}
+
+.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ---------- список звичок ---------- */
+
+.habits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.habit {
+  padding: 0.9rem 1rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--speed);
+}
+
+.habit:hover {
+  border-color: var(--border-strong);
+}
+
+.habit-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* Кнопка відмітки. Велика навмисно: це головна дія застосунку,
+   і на телефоні в неї треба влучати пальцем, а не цілитись.
+   44 пікселі — мінімальний зручний розмір із рекомендацій Apple. */
+.check {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--card);
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: background var(--speed), border-color var(--speed), transform var(--speed);
+}
+
+.check:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.check:active {
+  /* Легке стискання під пальцем. Дає відчуття фізичної кнопки
+     і підказує, що натискання зареєстровано, ще до відповіді сервера. */
+  transform: scale(0.92);
+}
+
+.check[aria-pressed="true"] {
+  background: var(--success);
+  border-color: var(--success);
+  color: var(--accent-text);
+}
+
+.habit-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.habit-name {
+  font-weight: 500;
+  /* Довга назва не має розпирати картку — обрізаємо трьома крапками. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.habit-meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.habit-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+}
+
+.ghost-button {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background var(--speed), color var(--speed), border-color var(--speed);
+}
+
+.ghost-button:hover {
+  background: var(--card-hover);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.ghost-button.danger:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* ---------- теплова карта ---------- */
+
+.calendar {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+  /* Вузький екран: сітка з 12 тижнів не влазить у 360 пікселів.
+     Хай прокручується вбік сама, не розтягуючи сторінку. */
+  overflow-x: auto;
+}
+
+.calendar-grid {
+  display: grid;
+  /* Рядок на кожен день тижня, стовпець на тиждень.
+     grid-auto-flow: column означає «заповнюй згори вниз, потім вправо» —
+     саме так лягають дати в календарі такого типу. */
+  grid-template-rows: repeat(7, 12px);
+  grid-auto-flow: column;
+  grid-auto-columns: 12px;
+  gap: 3px;
+  width: max-content;
+}
+
+.day {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--heat-0);
+}
+
+.day.done {
+  background: var(--heat-3);
+}
+
+.day.future {
+  /* Майбутні дні сітки лишаємо ледь помітними: вони існують, щоб
+     сітка не обривалась посеред тижня, але даних у них бути не може. */
+  opacity: 0.35;
+}
+
+.day.today {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.calendar-labels {
+  display: grid;
+  grid-template-rows: repeat(7, 12px);
+  gap: 3px;
+  /* Ширина задана явно, а не по вмісту: інакше вона залежала б від
+     того, як шрифт намалює «Пн», і сітка з'їжджала б на пів пікселя
+     від системи до системи. */
+  width: 18px;
+  margin-right: 6px;
+  /* Опускаємо стовпчик на висоту рядка з місяцями (14px + 4px
+     відступу), щоб «Пн» стояв навпроти першого рядка сітки. */
+  margin-top: 18px;
+  font-size: 9px;
+  color: var(--muted);
+  line-height: 12px;
+}
+
+.calendar-body {
+  display: flex;
+  align-items: flex-start;
+}
+
+/* Висота рядка з місяцями задана явно — на неї спирається відступ
+   стовпчика з днями тижня. Два узгоджені числа замість «як вийде». */
+.calendar-months {
+  display: flex;
+  height: 14px;
+  margin-bottom: 4px;
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--muted);
+}
+
+.calendar-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 0.6rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* ---------- порожні стани й помилки ---------- */
+
+.empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--muted);
+  background: var(--card);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.error {
+  margin: 0 0 1rem;
+  padding: 0.7rem 0.9rem;
+  background: color-mix(in srgb, var(--danger) 12%, var(--card));
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+/* Скелет замість спінера: показує майбутню форму вмісту, тому
+   перемикання на справжні дані не смикає сторінку. */
+.skeleton {
+  height: 76px;
+  border-radius: var(--radius);
+  background: linear-gradient(
+    90deg,
+    var(--card) 25%,
+    var(--card-hover) 50%,
+    var(--card) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* ---------- екран входу ---------- */
+
+.login {
+  max-width: 420px;
+  margin: 4rem auto;
+  padding: 2rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  text-align: center;
+}
+
+.login h1 {
+  margin: 0 0 0.75rem;
+  font-size: 1.5rem;
+}
+
+.login p {
+  color: var(--muted);
+  margin: 0 0 1.5rem;
+}
+
+.login .primary {
+  width: 100%;
+  padding: 0.75rem;
+}
+
+.login-link {
+  display: inline-block;
+  margin-top: 1rem;
+  color: var(--accent);
+}
+
+.login-hint {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+}
+
+/* ---------- аналітика ---------- */
+
+.cards {
+  display: grid;
+  /* auto-fit + minmax — сітка сама вирішує, скільки колонок влізе.
+     Жодних медіазапитів: на телефоні буде одна, на ноутбуці чотири. */
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.stat-card {
+  padding: 0.9rem 1rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.stat-value {
+  font-size: 1.75rem;
+  font-weight: 600;
+  line-height: 1.1;
+  /* tabular-nums робить цифри однакової ширини: число, що змінюється,
+     не смикає сусідній текст туди-сюди. */
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-label {
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.chart-card {
+  padding: 1rem;
+  margin-bottom: 1.25rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.chart-card h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+}
+
+.chart-note {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.chart-tooltip {
+  padding: 0.5rem 0.7rem;
+  background: var(--card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  font-size: 0.85rem;
+}
+
+.chart-tooltip strong {
+  display: block;
+  margin-bottom: 0.15rem;
+}
+
+/* Клас для тексту, який має читати екранний диктор, але не має
+   займати місце на екрані. Саме так, а не display:none — прихований
+   таким чином текст диктор просто не побачив би. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

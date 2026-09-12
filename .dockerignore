@@ -34,3 +34,12 @@ requirements-dev.txt
 README.md
 CLAUDE.md
 migrate_add_users.py
+
+# Фронтенд: у образ їде лише ЗІБРАНИЙ результат, і збирає його окремий
+# етап усередині Dockerfile.
+#
+# node_modules виключено з тієї ж причини, що й .venv: там лежать
+# бінарні пакети під хостову систему (Windows), і в Linux-контейнері
+# вони не працюють. npm ci всередині збірки поставить свої.
+frontend/node_modules/
+frontend/dist/
