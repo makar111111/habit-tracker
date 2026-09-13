@@ -14,7 +14,7 @@
 """
 
 import asyncio
-from datetime import datetime
+from datetime import date, datetime, timezone
 
 import pytest
 from aiogram import Bot, Dispatcher
@@ -28,6 +28,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlmodel import Session, SQLModel, create_engine
 
 import auth
+import calendar_rules
 from bot import checkin, manage, menu, new_habit
 from bot.__main__ import on_error
 from bot.api import HabitsAPI
@@ -278,6 +279,18 @@ async def test_start_saves_name(tg: BotUnderTest):
     assert response.json()["name"] == "Олена К"
 
 
+async def test_api_error_message_escapes_html(tg: BotUnderTest, monkeypatch):
+    from bot.api import ApiError
+
+    async def fail(*args, **kwargs):
+        raise ApiError("Помилка <input> & спробуй ще раз")
+
+    monkeypatch.setattr(tg.api, "list_habits", fail)
+    await tg.send("/habits")
+
+    assert tg.texts == ["Помилка &lt;input&gt; &amp; спробуй ще раз"]
+
+
 # ---------- створення звички ----------
 
 
@@ -362,6 +375,77 @@ async def test_tapping_habit_marks_and_unmarks(tg: BotUnderTest):
     await tg.tap(f"habit:toggle:{habit_id}")
     assert "знято" in tg.texts[0]
     assert any("⬜ Зарядка" in b for b in tg.buttons)
+
+
+async def test_undo_uses_owner_day_when_bot_clock_is_on_previous_day(tg: BotUnderTest, monkeypatch):
+    class HostDate(date):
+        @classmethod
+        def today(cls):
+            return date(2026, 9, 12)
+
+    monkeypatch.setattr(checkin, "date", HostDate, raising=False)
+    monkeypatch.setattr(calendar_rules, "now_utc",
+                        lambda: datetime(2026, 9, 12, 23, 30, tzinfo=timezone.utc))
+    habit = await tg.api.create_habit(USER.id, "Йога")
+    await tg.api.check_in(USER.id, habit["id"])
+    previous = await tg.api._request("POST", f"/habits/{habit['id']}/checkins", USER.id,
+                                     json={"day": "2026-09-12"})
+    assert previous.status_code == 201
+
+    await tg.tap(f"habit:toggle:{habit['id']}")
+
+    response = await tg.api._request("GET", f"/habits/{habit['id']}/checkins", USER.id)
+    assert [checkin["day"] for checkin in response.json()] == ["2026-09-12"]
+    assert tg.texts[0] == "Відмітку знято"
+
+
+async def test_tapping_foreign_habit_does_not_change_its_owner(tg: BotUnderTest):
+    habit = await tg.api.create_habit(999, "Чужа звичка")
+    await tg.api.check_in(999, habit["id"])
+
+    await tg.tap(f"habit:toggle:{habit['id']}")
+
+    owner_habits = await tg.api.habits_with_stats(999)
+    assert owner_habits[0]["stats"]["done_today"] is True
+    assert await tg.api.list_habits(USER.id) == []
+    assert not any(text in {"Відмічено 🔥", "Відмітку знято"} for text in tg.texts)
+
+
+async def test_habits_list_counts_planned_habits_and_labels_rest_days(tg: BotUnderTest, monkeypatch):
+    monkeypatch.setattr(calendar_rules, "now_utc",
+                        lambda: datetime(2026, 9, 12, 23, 30, tzinfo=timezone.utc))
+    await tg.api.create_habit(USER.id, "Щодня")
+    for name, fields in [
+        ("Відпочинок", {"weekdays": [5]}),
+        ("Архів", {}),
+    ]:
+        response = await tg.api._request("POST", "/habits", USER.id,
+                                         json={"name": name, **fields})
+        assert response.status_code == 201, response.text
+        if name == "Архів":
+            response = await tg.api._request("PATCH", f"/habits/{response.json()['id']}",
+                                             USER.id, json={"archived": True})
+            assert response.status_code == 200, response.text
+
+    await tg.send("/habits")
+
+    assert "Сьогодні відмічено: 0 з 1" in tg.texts[0]
+    assert "не заплановано" in tg.texts[0]
+    assert "⬜ Щодня" in tg.buttons
+    assert "💤 Відпочинок" in tg.buttons
+    assert all("Архів" not in button for button in tg.buttons)
+
+
+async def test_habit_card_explains_rest_day(tg: BotUnderTest):
+    today = await tg.api.today(USER.id)
+    response = await tg.api._request("POST", "/habits", USER.id,
+                                     json={"name": "Йога", "weekdays": [(today.weekday() + 1) % 7]})
+    assert response.status_code == 201, response.text
+    habit = response.json()
+
+    await tg.tap(f"habit:open:{habit['id']}")
+
+    assert any("Сьогодні: 💤 не заплановано" in text for text in tg.texts)
 
 
 async def test_tapping_edits_message_instead_of_sending_new(tg: BotUnderTest):

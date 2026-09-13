@@ -1,24 +1,22 @@
-"""Щоденне нагадування о встановленій годині.
+"""Нагадування за особистою годиною, часовим поясом і розкладом звичок.
 
-Кому пишемо: усім telegram-користувачам бота (не локальному браузерному —
-у нього немає telegram_id, надсилати нікуди), в яких лишилась хоч одна
-невідмічена сьогодні звичка.
-
-Механізм — власний нескінченний цикл на asyncio, а не готова бібліотека
-на кшталт APScheduler: рахуємо час до найближчого 20:00, засинаємо,
-прокидаємось, шлемо нагадування, рахуємо знову. Простіше й наочніше —
-і саме на такому циклі видно, як живе довготривалий асинхронний фон,
-а не як виглядає виклик готового інструмента.
+API зберігає день успішної доставки, тож звичайний перезапуск не повторює
+нагадування. Telegram і API не мають спільної транзакції: якщо повідомлення
+доставлено, а підтвердження API загубилося, наступна спроба може повторити
+його. Цей випадок лишаємо в журналі, а не оголошуємо гарантію exactly-once.
 """
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from aiogram import Bot
+from aiogram.utils.text_decorations import html_decoration
 
 from bot.api import ApiError, HabitsAPI
 from bot.plural import plural
+from bot.schedule import is_planned_on
 from config import REMINDER_HOUR
 
 
@@ -39,6 +37,22 @@ def next_run_at(now: datetime, hour: int = REMINDER_HOUR, minute: int = 0) -> da
     return candidate
 
 
+def reminder_day(target: dict, now: datetime) -> date | None:
+    """День нагадування у часовому поясі людини; None — ще не час або вже було."""
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("Годинник нагадувань має містити часовий пояс")
+    local = now.astimezone(ZoneInfo(target["timezone"]))
+    day = local.date()
+    if local.hour < target["reminder_hour"]:
+        return None
+    # Зміна пояса на захід може повернути календар на попередній день.
+    # Уже пройдені дні теж пропускаємо: API зберігає останній день монотонно.
+    last_day = target.get("last_reminder_day")
+    if last_day and last_day >= day.isoformat():
+        return None
+    return day
+
+
 def pluralize_habits(count: int) -> str:
     """Українська форма слова «звичка» залежно від числа.
 
@@ -56,7 +70,7 @@ def reminder_text(names: list[str]) -> str:
     нема про що», і викликач (send_reminders) відсіює такий випадок
     заздалегідь, до мережевого виклику.
     """
-    listed = "\n".join(f"• {name}" for name in names)
+    listed = "\n".join(f"• {html_decoration.quote(name)}" for name in names)
     return (
         f"Нагадування 🔔\n\n"
         f"Ще не відмічено {len(names)} {pluralize_habits(len(names))}:\n"
@@ -64,15 +78,22 @@ def reminder_text(names: list[str]) -> str:
     )
 
 
-async def undone_habit_names(api: HabitsAPI, telegram_id: int) -> list[str]:
-    """Назви звичок, які людина сьогодні ще не відмітила."""
+async def undone_habit_names(
+    api: HabitsAPI, telegram_id: int, day: date | None = None
+) -> list[str]:
+    """Невідмічені звички, заплановані на місцевий день людини."""
     habits = await api.habits_with_stats(telegram_id)
-    return [h["name"] for h in habits if not h["stats"].get("done_today")]
+    return [
+        habit["name"] for habit in habits
+        if (is_planned_on(habit, day) if day else habit.get("due_today", True))
+        and not (habit.get("stats") or {}).get("done_today")
+    ]
 
 
-async def send_reminders(bot: Bot, api: HabitsAPI) -> None:
-    """Одна розсилка: пройтись по всіх telegram-користувачах, написати тим,
-    у кого лишилось невідмічене.
+async def send_reminders(
+    bot: Bot, api: HabitsAPI, *, now: datetime | None = None
+) -> None:
+    """Одна перевірка особистих нагадувань. now — aware час для відтворюваності.
 
     Кожен крок обгорнутий окремо, щоб одна людина не зіпсувала розсилку
     всім іншим: якщо API не відповів для когось одного — пропускаємо
@@ -80,15 +101,25 @@ async def send_reminders(bot: Bot, api: HabitsAPI) -> None:
     акаунт — те саме. Розсилка на 500 людей не має спинятись через
     одну проблемну.
     """
+    now = now or datetime.now(timezone.utc)
     try:
-        telegram_ids = await api.list_telegram_users()
+        targets = await api.list_reminder_targets()
     except ApiError:
         logging.exception("Не вдалося отримати список користувачів для нагадування")
         return
 
-    for telegram_id in telegram_ids:
+    for target in targets:
+        telegram_id = target["telegram_id"]
         try:
-            names = await undone_habit_names(api, telegram_id)
+            day = reminder_day(target, now)
+        except (KeyError, ValueError):
+            logging.warning("Некоректні налаштування нагадування користувача %s", telegram_id)
+            continue
+        if day is None:
+            continue
+
+        try:
+            names = await undone_habit_names(api, telegram_id, day)
         except ApiError:
             logging.warning(
                 "Не вдалося перевірити звички користувача %s", telegram_id
@@ -111,43 +142,30 @@ async def send_reminders(bot: Bot, api: HabitsAPI) -> None:
             logging.warning(
                 "Не вдалося надіслати нагадування користувачу %s", telegram_id
             )
+            continue
+
+        try:
+            await api.mark_reminder_sent(telegram_id, day)
+        except ApiError:
+            logging.warning(
+                "Нагадування користувачу %s доставлено, але день не збережено; "
+                "можливе повторне надсилання", telegram_id,
+            )
 
 
 async def reminder_loop(bot: Bot, api: HabitsAPI) -> None:
-    """Нескінченний цикл: чекати до найближчого REMINDER_HOUR, надіслати,
-    повторити.
+    """Перевіряти нагадування одразу після запуску та щохвилини.
 
     Запускається окремою задачею (asyncio.create_task) паралельно
     з polling. Зупиняється через asyncio.CancelledError, коли її
     скасовують при завершенні бота (bot/__main__.py) — це штатний
     спосіб зупинити нескінченний цикл, а не помилка.
     """
-    # Час друкуємо в лог разом із назвою поясового зсуву навмисно.
-    # Бот і API рахують "сьогодні" кожен за своїм годинником, і поки
-    # вони на одній машині, це той самий годинник. У контейнерах —
-    # уже ні: за замовчуванням усередині UTC, тож "20:00" перетворилося б
-    # на 23:00 за Києвом, а відмітка, поставлена ввечері, могла б лягти
-    # на "завтра". docker-compose.yml задає обом контейнерам однаковий TZ,
-    # і саме цей рядок дає це швидко перевірити, не гадаючи.
-    now = datetime.now()
-    logging.info(
-        "Годинник бота: %s (%s). Нагадування о %d:00",
-        now.strftime("%Y-%m-%d %H:%M"),
-        now.astimezone().tzname() or "локальний час",
-        REMINDER_HOUR,
-    )
-
+    logging.info("Перевірка особистих нагадувань кожні 60 с")
     while True:
-        wait_seconds = (next_run_at(datetime.now()) - datetime.now()).total_seconds()
-        logging.info("Наступне нагадування через %.0f с", wait_seconds)
-        await asyncio.sleep(wait_seconds)
-
         try:
             await send_reminders(bot, api)
         except Exception:
-            # Непередбачена помилка в самій розсилці (а не в конкретному
-            # користувачі — ті вже оброблені всередині send_reminders)
-            # не повинна зупиняти цикл назавжди. Наступного вечора
-            # спробуємо ще раз замість того, щоб бот тихо перестав
-            # нагадувати комусь узагалі.
+            # Помилка не вимикає фонову задачу: наступна спроба за хвилину.
             logging.exception("Помилка при розсилці нагадувань")
+        await asyncio.sleep(60)

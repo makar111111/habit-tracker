@@ -15,11 +15,12 @@ from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, ErrorEvent
+from aiogram.utils.text_decorations import html_decoration
 
 from bot import checkin, login, manage, menu, new_habit
 from bot.api import ApiError, HabitsAPI
 from bot.reminders import reminder_loop
-from config import API_URL, BOT_SECRET, BOT_TOKEN, REMINDER_HOUR
+from config import API_URL, BOT_SECRET, BOT_TOKEN
 
 COMMANDS = [
     BotCommand(command="habits", description="Список звичок"),
@@ -98,7 +99,7 @@ async def on_error(event: ErrorEvent, api: HabitsAPI) -> bool:
             # з самого обробника помилок.
             await update.callback_query.answer(text[:200], show_alert=True)
         elif update.message is not None:
-            await update.message.answer(text)
+            await update.message.answer(html_decoration.quote(text))
     except TelegramAPIError:
         logging.warning("Не вдалося показати користувачеві текст помилки")
 
@@ -164,12 +165,12 @@ async def main() -> None:
 
         me = await bot.get_me()
         logging.info(
-            "Бот @%s запущений. API: %s. Нагадування о %d:00",
-            me.username, API_URL, REMINDER_HOUR,
+            "Бот @%s запущений. API: %s. Нагадування за налаштуваннями користувачів",
+            me.username, API_URL,
         )
 
         # Нагадування живуть в окремій задачі, паралельно з polling —
-        # інакше цикл reminder_loop (він спить годинами) заблокував би
+        # інакше нескінченний цикл reminder_loop заблокував би
         # весь бот: жоден update не оброблявся б, поки той не прокинеться.
         reminders = asyncio.create_task(reminder_loop(bot, api))
 

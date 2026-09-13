@@ -11,13 +11,14 @@ API перейменують поле, мок і далі радісно зел�
 """
 
 import asyncio
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlmodel import Session, SQLModel, create_engine
 
 import auth
+import calendar_rules
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -139,7 +140,7 @@ async def test_undo_check_in(api: HabitsAPI):
     habit = await api.create_habit(OLENA, "Йога")
     await api.check_in(OLENA, habit["id"])
 
-    assert await api.undo_check_in(OLENA, habit["id"], date.today()) is True
+    assert await api.undo_check_in(OLENA, habit["id"], await api.today(OLENA)) is True
 
     habits = await api.habits_with_stats(OLENA)
     assert habits[0]["stats"]["done_today"] is False
@@ -149,19 +150,20 @@ async def test_undo_without_checkin_returns_false(api: HabitsAPI):
     """Знімати нічого — не помилка, просто False."""
     habit = await api.create_habit(OLENA, "Йога")
 
-    assert await api.undo_check_in(OLENA, habit["id"], date.today()) is False
+    assert await api.undo_check_in(OLENA, habit["id"], await api.today(OLENA)) is False
 
 
 async def test_undo_specific_day(api: HabitsAPI):
     habit = await api.create_habit(OLENA, "Йога")
     await api.check_in(OLENA, habit["id"])
 
-    yesterday = date.today() - timedelta(days=1)
+    today = await api.today(OLENA)
+    yesterday = today - timedelta(days=1)
 
     # Учора не відмічали — знімати нічого.
     assert await api.undo_check_in(OLENA, habit["id"], yesterday) is False
     # А сьогоднішня відмітка має вціліти.
-    assert await api.undo_check_in(OLENA, habit["id"], date.today()) is True
+    assert await api.undo_check_in(OLENA, habit["id"], today) is True
 
 
 # ---------- користувач ----------
@@ -176,6 +178,58 @@ async def test_set_cyrillic_name(api: HabitsAPI):
 
     response = await api._request("GET", "/users/me", OLENA)
     assert response.json()["name"] == "Олена Ковальчук"
+
+
+async def test_today_uses_owner_timezone(api: HabitsAPI, monkeypatch):
+    from zoneinfo import ZoneInfo
+
+    now = datetime(2026, 9, 12, 12, tzinfo=timezone.utc)
+    monkeypatch.setattr(calendar_rules, "now_utc", lambda: now)
+    for telegram_id, zone in [(OLENA, "Pacific/Kiritimati"), (IHOR, "Pacific/Pago_Pago")]:
+        response = await api._request("PATCH", "/users/me", telegram_id,
+                                      json={"timezone": zone})
+        assert response.status_code == 200
+        expected = now.astimezone(ZoneInfo(zone)).date()
+        assert await api.today(telegram_id) == expected
+
+
+async def test_reminder_targets_preserve_settings_and_ack_owner_only(api: HabitsAPI):
+    await api.set_name(OLENA, "Олена")
+    await api.set_name(IHOR, "Ігор")
+
+    targets = await api.list_reminder_targets()
+    assert {target["telegram_id"] for target in targets} == {OLENA, IHOR}
+    assert all(target["timezone"] == "Europe/Kyiv" for target in targets)
+    assert all(target["reminder_hour"] == 20 for target in targets)
+    assert all(target["last_reminder_day"] is None for target in targets)
+
+    day = await api.today(OLENA)
+    await api.mark_reminder_sent(OLENA, day)
+    targets = {target["telegram_id"]: target for target in await api.list_reminder_targets()}
+    assert targets[OLENA]["last_reminder_day"] == day.isoformat()
+    assert targets[IHOR]["last_reminder_day"] is None
+
+
+async def test_habits_with_stats_carries_schedule_for_owner_today(api: HabitsAPI):
+    today = await api.today(OLENA)
+    await api.create_habit(OLENA, "Щодня")
+    for name, fields in [
+        ("За розкладом", {"weekdays": [today.weekday()]}),
+        ("Відпочинок", {"weekdays": [(today.weekday() + 1) % 7]}),
+        ("Архів", {}),
+    ]:
+        response = await api._request("POST", "/habits", OLENA, json={"name": name, **fields})
+        assert response.status_code == 201, response.text
+        if name == "Архів":
+            response = await api._request("PATCH", f"/habits/{response.json()['id']}",
+                                          OLENA, json={"archived": True})
+            assert response.status_code == 200, response.text
+
+    habits = {habit["name"]: habit for habit in await api.habits_with_stats(OLENA)}
+    assert set(habits) == {"Щодня", "За розкладом", "Відпочинок"}
+    assert habits["Щодня"]["due_today"] is True
+    assert habits["За розкладом"]["due_today"] is True
+    assert habits["Відпочинок"]["due_today"] is False
 
 
 # ---------- ізоляція ----------
@@ -253,7 +307,7 @@ async def test_undo_on_deleted_habit_returns_false(api: HabitsAPI):
     habit = await api.create_habit(OLENA, "Йога")
     await api.delete_habit(OLENA, habit["id"])
 
-    assert await api.undo_check_in(OLENA, habit["id"], date.today()) is False
+    assert await api.undo_check_in(OLENA, habit["id"], await api.today(OLENA)) is False
 
 
 # ---------- діалог створення звички ----------

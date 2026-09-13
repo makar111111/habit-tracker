@@ -2,8 +2,22 @@
 
 from datetime import date, datetime
 
-from sqlalchemy import UniqueConstraint
+from typing import Annotated
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from pydantic import ConfigDict, Field as PydanticField, StrictInt, field_validator
+from sqlalchemy import Column, JSON, UniqueConstraint
 from sqlmodel import Field, SQLModel
+
+Weekdays = Annotated[list[StrictInt], PydanticField(min_length=1, max_length=7)]
+
+
+def daily_weekdays() -> list[int]:
+    return list(range(7))
+
+
+def normalize_name(value):
+    return value.strip() if isinstance(value, str) else value
 
 
 # ---------- Користувачі ----------
@@ -30,6 +44,10 @@ class User(SQLModel, table=True):
 
     # Ім'я з Telegram — щоб у логах було видно людину, а не голий номер.
     name: str = ""
+    timezone: str = "Europe/Kyiv"
+    reminder_hour: int = 20
+    reminders_enabled: bool = True
+    last_reminder_day: date | None = None
 
 
 class UserPublic(SQLModel):
@@ -38,6 +56,9 @@ class UserPublic(SQLModel):
     id: int
     telegram_id: int | None
     name: str
+    timezone: str
+    reminder_hour: int
+    reminders_enabled: bool
 
 
 class LoginToken(SQLModel, table=True):
@@ -74,7 +95,31 @@ class UserUpdate(SQLModel):
     однобайтові, і кирилиця в них ламається.
     """
 
-    name: str = Field(min_length=1, max_length=100)
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    timezone: str | None = None
+    reminder_hour: Annotated[StrictInt, PydanticField(ge=0, le=23)] | None = None
+    reminders_enabled: bool | None = None
+
+    @field_validator('name', 'timezone', 'reminder_hour', 'reminders_enabled', mode='before')
+    @classmethod
+    def reject_null(cls, value):
+        if value is None:
+            raise ValueError('Значення не може бути null')
+        return value
+
+    @field_validator('name', mode='before')
+    @classmethod
+    def trim_name(cls, value):
+        return normalize_name(value)
+
+    @field_validator('timezone')
+    @classmethod
+    def valid_timezone(cls, value):
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError, TypeError):
+            raise ValueError('Невідомий часовий пояс') from None
+        return value
 
 
 # ---------- Звички ----------
@@ -84,6 +129,11 @@ class HabitBase(SQLModel):
     name: str = Field(min_length=1, max_length=100)
     description: str = ""
 
+    @field_validator('name', mode='before')
+    @classmethod
+    def trim_name(cls, value):
+        return normalize_name(value)
+
 
 # table=True перетворює клас на таблицю в базі даних.
 class Habit(HabitBase, table=True):
@@ -92,10 +142,21 @@ class Habit(HabitBase, table=True):
     # Власник. Саме це поле перетворює трекер з однокористувацького
     # на багатокористувацький: кожен запит тепер фільтрується по ньому.
     user_id: int = Field(foreign_key="user.id", index=True)
+    start_date: date | None = None
+    weekdays: list[int] = Field(default_factory=daily_weekdays, sa_column=Column(JSON, nullable=False))
+    archived_at: date | None = None
 
 
 class HabitCreate(HabitBase):
-    pass
+    start_date: date | None = None
+    weekdays: Weekdays = Field(default_factory=daily_weekdays)
+
+    @field_validator('weekdays')
+    @classmethod
+    def valid_weekdays(cls, value):
+        if any(day < 0 or day > 6 for day in value) or len(set(value)) != len(value):
+            raise ValueError('Обери різні дні тижня від 0 до 6')
+        return sorted(value)
 
 
 class HabitPublic(HabitBase):
@@ -108,12 +169,33 @@ class HabitPublic(HabitBase):
     """
 
     id: int
+    start_date: date | None
+    weekdays: list[int]
+    archived_at: date | None
 
 
 # Усі поля необов'язкові: можна змінити лише назву, не чіпаючи опис.
 class HabitUpdate(SQLModel):
-    name: str | None = None
+    model_config = ConfigDict(extra='forbid')
+    name: str | None = Field(default=None, min_length=1, max_length=100)
     description: str | None = None
+    archived: bool | None = None
+
+    @field_validator('name', 'description', 'archived', mode='before')
+    @classmethod
+    def reject_null(cls, value):
+        if value is None:
+            raise ValueError('Значення не може бути null')
+        return value
+
+    @field_validator('name', mode='before')
+    @classmethod
+    def trim_name(cls, value):
+        return normalize_name(value)
+
+
+class ReminderSent(SQLModel):
+    day: date
 
 
 # ---------- Відмітки виконання ----------

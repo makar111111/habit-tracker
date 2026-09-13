@@ -40,7 +40,8 @@ async def habits_view(
     if not habits:
         return EMPTY_TEXT, habits_keyboard([])
 
-    done = sum(1 for habit in habits if habit.get("stats", {}).get("done_today"))
+    planned = [habit for habit in habits if habit.get("due_today", True)]
+    done = sum(1 for habit in planned if habit.get("stats", {}).get("done_today"))
 
     # Назви звичок навмисно НЕ потрапляють у текст повідомлення: вони вже
     # є на кнопках. Заразом це знімає питання екранування — назва на
@@ -48,9 +49,11 @@ async def habits_view(
     # вона нешкідлива, бо там розмітка не обробляється взагалі.
     text = (
         f"<b>Твої звички</b>\n"
-        f"Сьогодні відмічено: {done} з {len(habits)}\n\n"
+        f"Сьогодні відмічено: {done} з {len(planned)}\n\n"
         f"Тицьни на звичку, щоб відмітити. Повторний дотик скасує відмітку."
     )
+    if len(planned) < len(habits):
+        text += "\n💤 — сьогодні не заплановано."
 
     return text, habits_keyboard(habits)
 
@@ -91,11 +94,12 @@ def _card_text(habit: dict) -> str:
     longest = stats.get("longest_streak") or 0
 
     lines.append("")
-    lines.append(
-        "Сьогодні: ✅ відмічено"
-        if stats.get("done_today")
-        else "Сьогодні: ⬜ ще ні"
-    )
+    if stats.get("done_today"):
+        lines.append("Сьогодні: ✅ відмічено")
+    elif not habit.get("due_today", True):
+        lines.append("Сьогодні: 💤 не заплановано")
+    else:
+        lines.append("Сьогодні: ⬜ ще ні")
     lines.append(f"🔥 Серія: {current} {plural(current, 'день', 'дні', 'днів')}")
     lines.append(f"🏆 Найдовша: {longest} {plural(longest, 'день', 'дні', 'днів')}")
     lines.append(f"📊 Усього: {total} {plural(total, 'день', 'дні', 'днів')}")

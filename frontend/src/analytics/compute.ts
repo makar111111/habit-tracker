@@ -7,9 +7,10 @@
  */
 
 import { addDays, toISO } from "../lib/dates";
+import { isScheduledOn, type Schedule } from "../lib/schedule";
 
 /** Звичка разом із усіма її відмітками. */
-export interface HabitDays {
+export interface HabitDays extends Schedule {
   id: number;
   name: string;
   /** Дні у форматі `YYYY-MM-DD`. */
@@ -32,12 +33,14 @@ export interface HabitPoint {
   /** Відсоток днів у періоді, коли звичку виконано. */
   percent: number;
   done: number;
+  possible: number;
 }
 
 export interface WeekdayPoint {
   label: string;
   percent: number;
   done: number;
+  possible: number;
 }
 
 const WEEKDAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"];
@@ -66,8 +69,8 @@ export function dailySeries(habits: HabitDays[], today: Date, days: number): Day
     return {
       date: iso,
       label: `${date.getDate()} ${MONTHS_SHORT[date.getMonth()]}`,
-      done: habits.filter((habit) => habit.days.has(iso)).length,
-      total: habits.length,
+      done: habits.filter((habit) => isScheduledOn(habit, iso) && habit.days.has(iso)).length,
+      total: habits.filter((habit) => isScheduledOn(habit, iso)).length,
     };
   });
 }
@@ -84,11 +87,13 @@ export function habitSeries(habits: HabitDays[], today: Date, days: number): Hab
 
   return habits
     .map((habit) => {
-      const done = period.filter((iso) => habit.days.has(iso)).length;
+      const planned = period.filter((iso) => isScheduledOn(habit, iso));
+      const done = planned.filter((iso) => habit.days.has(iso)).length;
       return {
         name: habit.name,
         done,
-        percent: Math.round((done / days) * 100),
+        possible: planned.length,
+        percent: planned.length === 0 ? 0 : Math.round((done / planned.length) * 100),
       };
     })
     .sort((a, b) => b.percent - a.percent);
@@ -115,13 +120,15 @@ export function weekdaySeries(
     const weekday = (date.getDay() + 6) % 7;
     const iso = toISO(date);
 
-    possible[weekday] += habits.length;
-    done[weekday] += habits.filter((habit) => habit.days.has(iso)).length;
+    const planned = habits.filter((habit) => isScheduledOn(habit, iso));
+    possible[weekday] += planned.length;
+    done[weekday] += planned.filter((habit) => habit.days.has(iso)).length;
   }
 
   return WEEKDAY_SHORT.map((label, index) => ({
     label,
     done: done[index],
+    possible: possible[index],
     percent: possible[index] === 0 ? 0 : Math.round((done[index] / possible[index]) * 100),
   }));
 }
@@ -139,11 +146,13 @@ export function summary(habits: HabitDays[], today: Date, days: number) {
   const period = lastDays(today, days).map(toISO);
 
   const doneInPeriod = habits.reduce(
-    (sum, habit) => sum + period.filter((iso) => habit.days.has(iso)).length,
+    (sum, habit) => sum + period.filter((iso) => isScheduledOn(habit, iso) && habit.days.has(iso)).length,
     0,
   );
 
-  const possible = habits.length * days;
+  const possible = habits.reduce(
+    (sum, habit) => sum + period.filter((iso) => isScheduledOn(habit, iso)).length, 0,
+  );
 
   // Дні, коли зроблено хоч щось. Показник «я взагалі підходив до
   // трекера» — він набагато менш суворий, ніж відсоток виконання,
@@ -155,6 +164,7 @@ export function summary(habits: HabitDays[], today: Date, days: number) {
   return {
     rate: possible === 0 ? 0 : Math.round((doneInPeriod / possible) * 100),
     activeDays,
+    possible,
     days,
   };
 }

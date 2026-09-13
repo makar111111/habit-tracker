@@ -64,7 +64,7 @@ def test_non_numeric_telegram_id_is_rejected(client: TestClient):
     """Нечисловий id відсікає сам FastAPI — до нашого коду справа не доходить."""
     response = client.get("/habits", headers={"X-Telegram-Id": "not-a-number"})
 
-    assert response.status_code == 422
+    assert response.status_code == 401
 
 
 def test_cyrillic_in_header_is_impossible(client: TestClient):

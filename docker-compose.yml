@@ -21,10 +21,14 @@ services:
       # звідки зникла б при першому ж перезапуску.
       DATABASE_URL: sqlite:////data/habits.db
       BOT_SECRET: ${BOT_SECRET:?BOT_SECRET не заданий — заповни .env}
-      # Пояс задаємо ЯВНО й однаковий обом сервісам. За замовчуванням
-      # у контейнері UTC, а бот і API кожен рахує "сьогодні" за своїм
-      # годинником: різні пояси означали б, що відмітка, поставлена
-      # ввечері, лягає на "завтра" з погляду одного з них.
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET не заданий — заповни .env}
+      BOT_USERNAME: ${BOT_USERNAME:?BOT_USERNAME не заданий — заповни .env}
+      # Для локального HTTP false; при публікації через HTTPS — true.
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      ALLOW_LOCAL_USER: "false"
+      BACKUP_DIR: /data/backups
+      # Системні логи мають спільний пояс. День звичок і нагадувань
+      # визначається часовим поясом у налаштуваннях кожної людини.
       TZ: ${TZ:-Europe/Kyiv}
 
     volumes:
@@ -32,10 +36,8 @@ services:
       # лише тому, що лежить на іменованому томі, а не всередині.
       - habits-data:/data
 
-    # Порт назовні потрібен для вебінтерфейсу. Прив'язка до 127.0.0.1
-    # навмисна: API не має входу з паролем (запит без заголовків
-    # вважається локальним користувачем), тож відкривати його в інтернет
-    # не можна. Для доступу ззовні — SSH-тунель або nginx із авторизацією.
+    # Для доступу ззовні HTTPS reverse proxy передає запити сюди.
+    # Вебвхід — підтвердження через Telegram; без сесії API повертає 401.
     ports:
       - "127.0.0.1:8000:8000"
 
@@ -43,7 +45,7 @@ services:
     # Без перевірки depends_on чекав би лише на створення контейнера,
     # а не на готовність застосунку в ньому.
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/docs')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -67,9 +69,7 @@ services:
       BOT_TOKEN: ${BOT_TOKEN:?BOT_TOKEN не заданий — заповни .env}
       BOT_SECRET: ${BOT_SECRET:?BOT_SECRET не заданий — заповни .env}
       REMINDER_HOUR: ${REMINDER_HOUR:-20}
-      # Той самий пояс, що й в API. Саме тут і живе домовленість
-      # про єдиний годинник — розійдуться ці два рядки, розійдеться
-      # й уявлення про "сьогодні".
+      # Часовий пояс системних логів; особистий розклад зберігає API.
       TZ: ${TZ:-Europe/Kyiv}
 
     depends_on:

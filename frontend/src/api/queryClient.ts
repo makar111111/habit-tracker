@@ -1,48 +1,59 @@
-import { MutationCache, QueryClient } from "@tanstack/react-query";
+import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 
-import { reportError } from "../lib/errorBus";
+import { reportError, resetErrorBus } from "../lib/errorBus";
+import { isUnauthorized } from "./client";
+import { keys } from "./keys";
 
-/**
- * Налаштування кешу на весь застосунок.
- *
- * Винесено з `main.tsx` окремою функцією не заради краси: тести
- * створюють клієнт цією ж функцією і тому перевіряють САМЕ ту
- * конфігурацію, що працює в бойовому режимі. Якби тест збирав свій
- * клієнт вручну, він міг би зеленіти з увімкненим обробником помилок,
- * якого в застосунку немає — і навпаки.
- */
+const sessionVersions = new WeakMap<QueryClient, number>();
+
+/** Версія змінюється при виході, щоб пізні відповіді старого сеансу ігнорувалися. */
+export function sessionVersion(client: QueryClient): number {
+  return sessionVersions.get(client) ?? 0;
+}
+
+/** При завершенні сеансу приватні запити скасовуються, а профіль стає порожнім. */
+export function endSession(client: QueryClient): void {
+  sessionVersions.set(client, sessionVersion(client) + 1);
+  void client.cancelQueries();
+  client.setQueryData(keys.me, null);
+  resetErrorBus();
+}
+
+/** Видалення активного query створює новий запит; чистимо після unmount екранів. */
+export function clearPrivateQueries(client: QueryClient): void {
+  client.removeQueries({ predicate: (query) => query.queryKey[0] !== keys.me[0] });
+}
+
 export function createQueryClient(): QueryClient {
-  return new QueryClient({
-    // MutationCache — спільне місце, крізь яке проходять УСІ мутації.
-    // Один обробник тут замінює try/catch у кожній дії окремо: жодну
-    // помилку неможливо забути показати, бо показує не автор дії.
+  const client = new QueryClient({
+    queryCache: new QueryCache({
+      onError: (error) => { if (isUnauthorized(error)) endSession(client); },
+    }),
+    // Помилки всіх дій показує один ErrorBanner; компоненти не приховують відмови.
     mutationCache: new MutationCache({
       onError: (error) => {
-        reportError(error instanceof Error ? error.message : "Не вдалося виконати дію");
+        if (isUnauthorized(error)) endSession(client);
+        else reportError(error instanceof Error ? error.message : "Не вдалося виконати дію");
       },
     }),
-
     defaultOptions: {
       queries: {
-        // staleTime — скільки часу дані вважаються свіжими. Нуль (за
-        // замовчуванням) означає «перезапитуй за найменшого приводу».
         staleTime: 30_000,
-
-        // Одна спроба повтору замість трьох. Сервер тут свій:
-        // якщо не відповів двічі — він лежить, і чекати ще два рази
-        // означає лише довше показувати людині порожній екран.
-        retry: 1,
-
-        // Оновлювати при поверненні на вкладку.
-        //
-        // Для більшості застосунків це зайва метушня, і спершу тут
-        // стояло false. Але в цього застосунку є ДРУГИЙ клієнт —
-        // Telegram-бот. Типовий сценарій: відмітився з телефона,
-        // повернувся до відкритої вкладки — і бачиш учорашній стан.
-        // Тобто дані тут справді змінюються поза цією вкладкою, і це
-        // саме той випадок, заради якого налаштування існує.
+        retry: (count, error) => !isUnauthorized(error) && count < 1,
         refetchOnWindowFocus: true,
       },
     },
   });
+  // Статус уже завершений: дві одночасні onSettled можуть обидві бачити іншу
+  // мутацію як pending. Подія останнього завершення дає надійну точку оновлення.
+  client.getMutationCache().subscribe((event) => {
+    if (event.type !== "updated" || !["success", "error"].includes(event.action.type)) return;
+    if (event.mutation.options.mutationKey?.[0] !== keys.habitChange[0]) return;
+    if (isUnauthorized(event.mutation.state.error) || client.getQueryData(keys.me) === null) return;
+    if (client.isMutating({ mutationKey: keys.habitChange }) === 0) {
+      void client.invalidateQueries({ queryKey: keys.habits });
+      void client.invalidateQueries({ queryKey: keys.stats });
+    }
+  });
+  return client;
 }

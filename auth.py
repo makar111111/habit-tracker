@@ -8,13 +8,9 @@
    нічого не вартий: інакше будь-хто написав би "я користувач 12345"
    і прочитав чужі звички.
 
-2. Браузер на твоєму комп'ютері. Заголовків не шле взагалі — і отримує
-   окремого локального користувача. Це свідоме спрощення: вебінтерфейс
-   розрахований на запуск на localhost, для однієї людини.
-
-   ВАЖЛИВО, якщо колись виставлятимеш API назовні: локальний режим
-   треба буде або вимкнути, або закрити справжнім входом із паролем.
-   Зараз він означає "хто дістався до порту — той і господар".
+2. Браузер. Після підтвердження входу через бота надсилає підписану
+   cookie сесії. Окремий локальний користувач доступний лише за явно
+   ввімкненого ALLOW_LOCAL_USER — це режим розробки.
 """
 
 import hashlib
@@ -145,9 +141,9 @@ def get_or_create_user(
 def get_current_user(
     session: Session = Depends(get_session),
     # FastAPI сам перетворює ім'я аргументу на назву заголовка:
-    # x_telegram_id -> X-Telegram-Id. Тип int означає, що нечислове
-    # значення буде відхилено ще до входу в цю функцію.
-    x_telegram_id: int | None = Header(default=None),
+    # x_telegram_id -> X-Telegram-Id. Рядок перевіряємо до запиту в БД:
+    # завеликий int інакше спричинив би OverflowError у SQLite.
+    x_telegram_id: str | None = Header(default=None),
     x_bot_secret: str | None = Header(default=None),
     habits_session: str | None = Cookie(default=None),
 ) -> User:
@@ -185,6 +181,13 @@ def get_current_user(
 
     # Далі — запит нібито від бота, і його треба перевірити.
 
+    if (len(x_telegram_id) > 19 or not x_telegram_id.isascii()
+            or not x_telegram_id.isdecimal()):
+        raise HTTPException(status_code=401, detail='Некоректний Telegram ID')
+    telegram_id = int(x_telegram_id)
+    if not 0 < telegram_id <= 2**63 - 1:
+        raise HTTPException(status_code=401, detail='Некоректний Telegram ID')
+
     if not BOT_SECRET:
         # Пароль не налаштовано. Мовчки пускати не можна: порівняння
         # порожнього рядка з порожнім дало б True, і доступ відкрився б
@@ -199,13 +202,13 @@ def get_current_user(
     # й обривається на першій розбіжності. Різниця в часі мікроскопічна,
     # але за нею можна підбирати пароль по одному символу. compare_digest
     # витрачає однаковий час незалежно від того, де саме розбіжність.
-    if x_bot_secret is None or not secrets.compare_digest(x_bot_secret, BOT_SECRET):
+    if x_bot_secret is None or not secrets.compare_digest(x_bot_secret.encode(), BOT_SECRET.encode()):
         raise HTTPException(status_code=401, detail="Невірний секрет бота")
 
     # Ім'я порожнє навмисно: справжнє ім'я приходить окремим запитом
     # із тілом JSON. Кирилицю не можна класти в HTTP-заголовок —
     # заголовки за стандартом однобайтові, і "Олена" їх ламає.
-    return get_or_create_user(session, x_telegram_id, "")
+    return get_or_create_user(session, telegram_id, "")
 
 
 # Коротке ім'я, щоб не писати Depends(get_current_user) у кожному ендпоінті.
@@ -229,7 +232,7 @@ def require_bot(x_bot_secret: str | None = Header(default=None)) -> None:
             detail="Доступ для бота не налаштовано: у .env немає BOT_SECRET",
         )
 
-    if x_bot_secret is None or not secrets.compare_digest(x_bot_secret, BOT_SECRET):
+    if x_bot_secret is None or not secrets.compare_digest(x_bot_secret.encode(), BOT_SECRET.encode()):
         raise HTTPException(status_code=401, detail="Невірний секрет бота")
 
 

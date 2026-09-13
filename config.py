@@ -25,10 +25,8 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 # Де бот шукатиме API.
 API_URL = os.environ.get("API_URL", "http://127.0.0.1:8000")
 
-# О котрій годині (за годинником машини, де працює бот) надсилати щоденне
-# нагадування про невідмічені звички. int() навмисно без обробки помилок:
-# якщо в .env випадково напишуть не число, хай застосунок одразу впаде
-# з зрозумілим ValueError, а не мовчки нагадує о неправильній годині.
+# Сумісність зі старим helper next_run_at. Робочий цикл нагадувань бере
+# особисті reminder_hour і timezone користувача з API.
 REMINDER_HOUR = int(os.environ.get("REMINDER_HOUR", "20"))
 
 # Де лежить база. Три слеші — це "файл за відносним шляхом", тобто
@@ -38,7 +36,7 @@ REMINDER_HOUR = int(os.environ.get("REMINDER_HOUR", "20"))
 # лежати на змонтованому томі (наприклад, sqlite:////data/habits.db —
 # чотири слеші, бо шлях абсолютний), інакше вона зникне разом
 # із контейнером при першому ж перезапуску.
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///habits.db")
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip() or "sqlite:///habits.db"
 
 # Ім'я бота без @ — з нього збирається посилання для входу
 # (t.me/ІМ'Я?start=КОД). API не може дізнатись його сам: бот знає своє
@@ -64,3 +62,9 @@ LOGIN_TOKEN_TTL_SECONDS = int(os.environ.get("LOGIN_TOKEN_TTL_SECONDS", 300))
 # означає «хто дістався до порту — той і господар», тож за замовчуванням
 # режим ВИМКНЕНО, і вмикати його треба свідомо, у своєму .env.
 ALLOW_LOCAL_USER = os.environ.get("ALLOW_LOCAL_USER", "").lower() in {"1", "true", "yes"}
+
+# HTTPS-деплой вмикає Secure; для локального HTTP лишається вимкнено.
+SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "").lower() in {"1", "true", "yes"}
+
+# Порожнє значення вимикає періодичні копії. Compose задає /data/backups.
+BACKUP_DIR = os.environ.get("BACKUP_DIR", "")

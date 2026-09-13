@@ -20,6 +20,7 @@ from datetime import date
 import httpx
 
 from config import API_URL, BOT_SECRET
+from bot.schedule import is_planned_on
 
 # Межа з моделей на боці API (HabitBase.name та UserUpdate.name).
 # Тримаємо копію тут, щоб бот міг підрізати значення ЗАЗДАЛЕГІДЬ і не
@@ -134,6 +135,24 @@ class HabitsAPI:
 
     # ---------- користувач ----------
 
+    async def today(self, telegram_id: int) -> date:
+        """Поточний день власника за його часовим поясом на боці API."""
+        response = await self._request("GET", "/users/me/today", telegram_id)
+        return date.fromisoformat(self._ok(response).json()["day"])
+
+    async def list_reminder_targets(self) -> list[dict]:
+        """Увімкнені нагадування: користувач, часовий пояс, година й останній день."""
+        response = await self._request("GET", "/reminder-targets", None)
+        return self._ok(response).json()
+
+    async def mark_reminder_sent(self, telegram_id: int, day: date) -> None:
+        """Зберегти день лише після успішного надсилання в Telegram."""
+        response = await self._request(
+            "POST", f"/reminder-targets/{telegram_id}/sent", None,
+            json={"day": day.isoformat()},
+        )
+        self._ok(response)
+
     async def set_name(self, telegram_id: int, name: str) -> None:
         """Зберегти імʼя людини на боці API.
 
@@ -196,6 +215,9 @@ class HabitsAPI:
         Паралельно — max(час(A), час(B)), тобто майже вдвічі менше.
         Саме заради таких місць бот і робиться асинхронним.
         """
+        # Той самий день користувача потрібний для розкладу, що й для відміток.
+        # Годинник процесу бота може бути в зовсім іншому часовому поясі.
+        today = await self.today(telegram_id)
         habits, stats = await asyncio.gather(
             self.list_habits(telegram_id),
             self.list_stats(telegram_id),
@@ -205,7 +227,10 @@ class HabitsAPI:
         # щоб пошук був миттєвий, а не перебором на кожну звичку.
         stats_by_id = {row["habit_id"]: row for row in stats}
 
-        return [habit | {"stats": stats_by_id.get(habit["id"], {})} for habit in habits]
+        return [habit | {
+            "stats": stats_by_id.get(habit["id"], {}),
+            "due_today": is_planned_on(habit, today),
+        } for habit in habits]
 
     async def create_habit(
         self, telegram_id: int, name: str, description: str = ""
@@ -283,7 +308,7 @@ class HabitsAPI:
         уже був відмічений раніше.
 
         День обирає СЕРВЕР: ми надсилаємо порожнє тіло, і він підставляє
-        свою поточну дату.
+        поточну дату в часовому поясі власника.
 
         409 тут навмисно НЕ вважається помилкою: з погляду API це
         конфлікт, а з погляду людини — просто «вже зроблено».

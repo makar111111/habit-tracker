@@ -1,7 +1,5 @@
 """Натискання кнопки звички: відмітити або скасувати відмітку."""
 
-from datetime import date
-
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
@@ -66,15 +64,11 @@ async def toggle_checkin(
         # перевірки, що звичка існує і належить цій людині. Тобто тут
         # гарантовано: звичка наша і сьогодні відмічене.
         #
-        # Знімаємо саме date.today(). Спокусливо було б спитати сервер,
-        # який день він вважає сьогоднішнім (у показниках є last_day) —
-        # але last_day це max() з усіх відміток БЕЗ обмеження зверху,
-        # а API приймає й майбутні дати. Якщо людина у браузері відмітила
-        # день наперед, last_day вкаже на нього — і ми видалили б не ту
-        # відмітку. Бот і API працюють на одній машині з одним годинником,
-        # тож date.today() тут і простіший, і безпечніший.
+        # API визначає день у часовому поясі власника. Годинник бота
+        # може показувати іншу дату, а last_day — майбутню відмітку.
+        today = await api.today(telegram_id)
         removed = await api.undo_check_in(
-            telegram_id, callback_data.habit_id, date.today()
+            telegram_id, callback_data.habit_id, today
         )
         # Не оголошуємо успіх наосліп: якщо відмітку встиг зняти хтось
         # інший (той самий акаунт у браузері), чесніше сказати правду.

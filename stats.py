@@ -6,6 +6,8 @@
 
 from datetime import date, timedelta
 
+from calendar_rules import previous_scheduled
+
 ONE_DAY = timedelta(days=1)
 
 
@@ -50,16 +52,37 @@ def current_streak(days: set[date], today: date) -> int:
     return length
 
 
-def compute(days: list[date], today: date) -> dict:
+def compute(
+    days: list[date], today: date, *, weekdays: list[int] | None = None,
+    start_date: date | None = None, archived_at: date | None = None,
+) -> dict:
     """Зібрати всі показники разом."""
     # set замість list з двох причин: прибирає можливі дублікати
     # і робить перевірку "чи є такий день" миттєвою.
     unique = set(days)
 
+    scheduled_weekdays = set(range(7) if weekdays is None else weekdays)
+    end = min(today, archived_at) if archived_at else today
+    completed = {
+        day for day in unique
+        if day <= end and (start_date is None or day >= start_date)
+        and day.weekday() in scheduled_weekdays
+    }
+    runs: dict[date, int] = {}
+    for day in sorted(completed):
+        previous = previous_scheduled(day, scheduled_weekdays)
+        runs[day] = runs.get(previous, 0) + 1
+
+    anchor = previous_scheduled(end, scheduled_weekdays, inclusive=True)
+    # Сьогодні ще можна встигнути. Пропущений минулий запланований день
+    # уже обриває серію, навіть якщо сьогодні вихідний.
+    if anchor == today and anchor not in completed:
+        anchor = previous_scheduled(anchor, scheduled_weekdays)
+
     return {
         "total": len(unique),
-        "current_streak": current_streak(unique, today),
-        "longest_streak": longest_streak(unique),
+        "current_streak": runs.get(anchor, 0),
+        "longest_streak": max(runs.values(), default=0),
         "done_today": today in unique,
         "last_day": max(unique) if unique else None,
     }

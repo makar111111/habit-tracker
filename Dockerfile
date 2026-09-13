@@ -48,7 +48,8 @@ FROM python:3.14-slim
 # PYTHONDONTWRITEBYTECODE — .pyc у контейнері нікому не потрібні:
 # він одноразовий, а файли лише засмічують шар.
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHON_DOTENV_DISABLED=1
 
 WORKDIR /app
 
@@ -74,9 +75,11 @@ COPY --from=frontend /build/dist ./frontend/dist
 # Теку для бази створюємо й віддаємо йому ДО переходу: змонтований том
 # успадкує власника, і застосунок зможе туди писати.
 RUN useradd --create-home --shell /bin/bash app \
-    && mkdir -p /data \
+    && mkdir -p /data/backups \
     && chown -R app:app /app /data
 USER app
+
+EXPOSE 8000
 
 # Команда за замовчуванням — API. Бот запускається тим самим образом,
 # але з іншою командою (див. docker-compose.yml).

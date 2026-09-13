@@ -9,11 +9,13 @@
 
 import type {
   Checkin,
+  CreateHabitInput,
   Habit,
   HabitStats,
   LoginCode,
   LoginPoll,
   User,
+  UserChanges,
 } from "./types";
 
 /**
@@ -107,21 +109,21 @@ async function extractMessage(response: Response): Promise<string> {
 
 // ---------- Звички ----------
 
-export function listHabits(): Promise<Habit[]> {
-  return request<Habit[]>("/habits");
+export function listHabits(includeArchived = false): Promise<Habit[]> {
+  return request<Habit[]>(`/habits${includeArchived ? "?include_archived=true" : ""}`);
 }
 
-export function listStats(): Promise<HabitStats[]> {
-  return request<HabitStats[]>("/stats");
+export function listStats(includeArchived = false): Promise<HabitStats[]> {
+  return request<HabitStats[]>(`/stats${includeArchived ? "?include_archived=true" : ""}`);
 }
 
-export function createHabit(name: string, description: string): Promise<Habit> {
-  return request<Habit>("/habits", { method: "POST", body: { name, description } });
+export function createHabit(input: CreateHabitInput): Promise<Habit> {
+  return request<Habit>("/habits", { method: "POST", body: input });
 }
 
 export function updateHabit(
   id: number,
-  changes: { name?: string; description?: string },
+  changes: { name?: string; description?: string; archived?: boolean },
 ): Promise<Habit> {
   return request<Habit>(`/habits/${id}`, { method: "PATCH", body: changes });
 }
@@ -183,6 +185,14 @@ export async function undoCheckIn(habitId: number, day: string): Promise<boolean
 
 export function getMe(): Promise<User> {
   return request<User>("/users/me");
+}
+
+export function getToday(): Promise<{ day: string }> {
+  return request<{ day: string }>("/users/me/today");
+}
+
+export function updateMe(changes: UserChanges): Promise<User> {
+  return request<User>("/users/me", { method: "PATCH", body: changes });
 }
 
 export function requestLoginCode(): Promise<LoginCode> {

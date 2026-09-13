@@ -133,3 +133,40 @@ describe("summary", () => {
     expect(result).not.toHaveProperty("totalCheckins");
   });
 });
+
+describe("Розклад і межі життя звички", () => {
+  it("дає 100% звичці, яку створено й виконано сьогодні", () => {
+    const fresh = { ...habit("Йога", back(0)), start_date: "2026-09-12" };
+    expect(habitSeries([fresh], TODAY, 30)[0].percent).toBe(100);
+    expect(summary([fresh], TODAY, 30).rate).toBe(100);
+  });
+
+  it("не рахує вихідні та додаткові відмітки поза розкладом у відсотку", () => {
+    const planned = {
+      ...habit("Йога", ["2026-09-07", "2026-09-09", "2026-09-12"]),
+      start_date: "2026-09-07", weekdays: [0, 2, 4],
+    };
+    expect(summary([planned], TODAY, 30).rate).toBe(67);
+    expect(summary([planned], TODAY, 30).activeDays).toBe(3);
+    expect(habitSeries([planned], TODAY, 30)[0]).toMatchObject({ done: 2, percent: 67 });
+    expect(dailySeries([planned], TODAY, 7).at(-1)).toMatchObject({ done: 0, total: 0 });
+    expect(weekdaySeries([planned], TODAY, 30).find((day) => day.label === "Пн")?.percent).toBe(100);
+  });
+
+  it("припиняє знаменник у день архівування включно", () => {
+    const archived = {
+      ...habit("Йога", ["2026-09-07", "2026-09-08"]),
+      start_date: "2026-09-07", archived_at: "2026-09-08",
+    };
+    expect(summary([archived], TODAY, 30).rate).toBe(100);
+    expect(dailySeries([archived], TODAY, 7).at(-1)?.total).toBe(0);
+  });
+
+  it("не ділить на нуль до першого запланованого дня", () => {
+    const planned = { ...habit("Йога", []), start_date: "2026-09-12", weekdays: [0] };
+    expect(summary([planned], TODAY, 30).rate).toBe(0);
+    expect(summary([planned], TODAY, 30).possible).toBe(0);
+    expect(habitSeries([planned], TODAY, 30)[0].possible).toBe(0);
+    expect(weekdaySeries([planned], TODAY, 30).every((point) => point.possible === 0)).toBe(true);
+  });
+});

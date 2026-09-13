@@ -83,7 +83,10 @@ def habit_button_text(habit: dict) -> str:
     """
     stats = habit.get("stats") or {}
 
-    mark = "✅" if stats.get("done_today") else "⬜"
+    if stats.get("done_today"):
+        mark = "✅"
+    else:
+        mark = "⬜" if habit.get("due_today", True) else "💤"
     label = f"{mark} {shorten(habit['name'])}"
 
     # Серію показуємо лише коли вона є. Нулик біля кожної звички

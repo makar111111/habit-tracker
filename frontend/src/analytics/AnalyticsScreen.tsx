@@ -11,10 +11,11 @@ import {
   YAxis,
 } from "recharts";
 
-import { useAllCheckins } from "../api/hooks";
+import { useAllCheckins, useHabitsWithStats } from "../api/hooks";
 import type { HabitWithStats } from "../api/types";
 import { pluralDays } from "../lib/dates";
 import { useChartColors } from "../lib/useChartColors";
+import { QueryError } from "../components/QueryError";
 import {
   dailySeries,
   habitSeries,
@@ -48,12 +49,21 @@ const PERIODS = [
  * шукають, яка лінія чия, замість того щоб побачити тенденцію.
  * З однією лінією не потрібна й легенда — заголовок уже все назвав.
  */
-export function AnalyticsScreen({ items, today }: Props) {
+export function AnalyticsScreen({ today }: { today: Date }) {
+  const query = useHabitsWithStats(true, true);
+  if (query.error) return <QueryError error={query.error} retry={query.refetch} />;
+  if (query.isLoading) return <div className="skeleton" aria-label="Завантажую аналітику" />;
+  return <AnalyticsCharts items={query.items} today={today} />;
+}
+
+function AnalyticsCharts({ items, today }: Props) {
   const [days, setDays] = useState(30);
   const colors = useChartColors();
 
   const habitIds = items.map((item) => item.habit.id);
-  const { daysByHabit, isLoading } = useAllCheckins(habitIds, items.length > 0);
+  const { daysByHabit, isLoading, error, refetch } = useAllCheckins(habitIds, items.length > 0, today);
+
+  if (error) return <QueryError error={error} retry={refetch} />;
 
   if (items.length === 0) {
     return <p className="empty">Спершу додай хоч одну звичку — тоді буде що рахувати.</p>;
@@ -70,7 +80,7 @@ export function AnalyticsScreen({ items, today }: Props) {
   }
 
   const habits: HabitDays[] = items.map((item) => ({
-    id: item.habit.id,
+    ...item.habit,
     name: item.habit.name,
     days: daysByHabit.get(item.habit.id) ?? new Set<string>(),
   }));
@@ -119,15 +129,17 @@ export function AnalyticsScreen({ items, today }: Props) {
       </div>
 
       <div className="cards">
-        <StatCard value={`${totals.rate}%`} label={`виконано за ${days} днів`} />
+        <StatCard value={totals.possible ? `${totals.rate}%` : "—"} label={`за розкладом за ${days} днів`} />
         <StatCard value={totalCheckins} label="відміток за весь час" />
-        <StatCard value={bestStreak} label={`найдовша серія, ${pluralDays(bestStreak)}`} />
+        <StatCard value={bestStreak} label="найдовша серія виконань" />
         <StatCard value={totals.activeDays} label={`активних днів із ${days}`} />
       </div>
 
+      {totals.possible === 0 && <p className="chart-note">У цьому періоді ще немає запланованих днів.</p>}
+
       <section className="chart-card">
         <h2>Динаміка</h2>
-        <p className="chart-note">Скільки звичок відмічено кожного дня періоду.</p>
+        <p className="chart-note">Заплановані виконання за день. Архів враховано до дати архівування включно.</p>
 
         <ResponsiveContainer width="100%" height={220}>
           <AreaChart data={daily} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
@@ -181,7 +193,7 @@ export function AnalyticsScreen({ items, today }: Props) {
 
       <section className="chart-card">
         <h2>Звички поруч</h2>
-        <p className="chart-note">Відсоток днів періоду, коли звичку виконано.</p>
+        <p className="chart-note">Виконані дні розкладу від дати початку звички. Дні відпочинку не зменшують результат.</p>
 
         <ResponsiveContainer width="100%" height={Math.max(120, byHabit.length * 42)}>
           <BarChart
@@ -209,15 +221,14 @@ export function AnalyticsScreen({ items, today }: Props) {
         <DataTable
           caption="Звички за період"
           head={["Звичка", "Виконано", "Відсоток"]}
-          rows={byHabit.map((point) => [point.name, String(point.done), `${point.percent}%`])}
+          rows={byHabit.map((point) => [point.name, String(point.done), point.possible ? `${point.percent}%` : "—"])}
         />
       </section>
 
       <section className="chart-card">
         <h2>Дні тижня</h2>
         <p className="chart-note">
-          Де провал — там і варто шукати причину: відсоток рахується від можливого,
-          тому зайвий понеділок у періоді результат не спотворює.
+          Частка виконаних запланованих днів. Додаткові відмітки поза розкладом зберігаються в загальній кількості.
         </p>
 
         <ResponsiveContainer width="100%" height={200}>
@@ -238,7 +249,7 @@ export function AnalyticsScreen({ items, today }: Props) {
         <DataTable
           caption="Дні тижня"
           head={["День", "Відсоток"]}
-          rows={byWeekday.map((point) => [point.label, `${point.percent}%`])}
+          rows={byWeekday.map((point) => [point.label, point.possible ? `${point.percent}%` : "—"])}
         />
       </section>
     </>
@@ -278,31 +289,31 @@ function DayTooltip(props: TooltipProps) {
   return (
     <div className="chart-tooltip">
       <strong>{point.label}</strong>
-      {point.done} з {point.total}
+      {point.total ? `${point.done} з ${point.total}` : "Немає запланованих днів"}
     </div>
   );
 }
 
 function HabitTooltip(props: TooltipProps) {
-  const point = firstPayload<{ name: string; percent: number; done: number }>(props);
+  const point = firstPayload<{ name: string; percent: number; done: number; possible: number }>(props);
   if (!point) return null;
 
   return (
     <div className="chart-tooltip">
       <strong>{point.name}</strong>
-      {point.percent}% — {point.done} {pluralDays(point.done)}
+      {point.possible ? `${point.percent}% — ${point.done} ${pluralDays(point.done)}` : "Немає запланованих днів"}
     </div>
   );
 }
 
 function WeekdayTooltip(props: TooltipProps) {
-  const point = firstPayload<{ label: string; percent: number }>(props);
+  const point = firstPayload<{ label: string; percent: number; possible: number }>(props);
   if (!point) return null;
 
   return (
     <div className="chart-tooltip">
       <strong>{point.label}</strong>
-      {point.percent}% виконання
+      {point.possible ? `${point.percent}% виконання` : "Немає запланованих днів"}
     </div>
   );
 }

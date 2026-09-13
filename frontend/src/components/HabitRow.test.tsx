@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,7 +15,7 @@ import { HabitRow } from "./HabitRow";
 const TODAY = new Date(2026, 8, 12);
 
 const item: HabitWithStats = {
-  habit: { id: 7, name: "Йога", description: "" },
+  habit: { id: 7, name: "Йога", description: "", start_date: "2026-01-01", weekdays: [0, 1, 2, 3, 4, 5, 6], archived_at: null },
   stats: {
     habit_id: 7,
     total: 88,
@@ -65,9 +65,25 @@ describe("Календар просить лише потрібний періо
 
     // Перевіряємо не конкретне число, а домовленість: вікна має
     // вистачати і на теплову карту (84 дні), і на аналітику (90).
-    const depth = daysBetween(fromISO(range!.since!), new Date());
+    const depth = daysBetween(fromISO(range!.since!), TODAY);
     expect(depth).toBeGreaterThanOrEqual(90);
   });
+});
+
+it("повторне натискання та календар блокуються до завершення запису", async () => {
+  let finish!: (value: boolean) => void;
+  vi.spyOn(client, "checkIn").mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+  renderRow();
+  await userEvent.click(screen.getByLabelText("Показати календар"));
+  await screen.findByRole("group", { name: "Відмітки за датами" });
+  const button = screen.getByLabelText("Йога: не зроблено сьогодні");
+  await userEvent.click(button);
+  expect(button).toBeDisabled();
+  expect(screen.getByRole("button", { name: /2026-09-11/ })).toBeDisabled();
+  await userEvent.dblClick(button);
+  expect(client.checkIn).toHaveBeenCalledTimes(1);
+  act(() => finish(true));
+  await waitFor(() => expect(button).toBeEnabled());
 });
 
 describe("Помилка дії видима", () => {

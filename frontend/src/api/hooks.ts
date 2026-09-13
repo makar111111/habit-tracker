@@ -1,353 +1,182 @@
-/**
- * Хуки навколо TanStack Query — місце, де живе весь серверний стан.
- *
- * Головна ідея бібліотеки: дані з сервера — це не «стан компонента»,
- * а КЕШ. Він може застаріти, його треба оновлювати, кілька компонентів
- * мають бачити одне й те саме. Старий `app.js` розв'язував це тим, що
- * після кожної дії викликав `load()` і перемальовував усе. Працювало,
- * але одна відмітка коштувала повного перезавантаження списку.
- *
- * Тут інакше: мутація ОДРАЗУ править кеш (оптимістичне оновлення),
- * кнопка перемикається без очікування мережі, а справжня відповідь
- * сервера лише підтверджує вже намальоване.
- */
-
-import {
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-  type QueryClient,
-} from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
+import { useIsMutating, useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import * as api from "./client";
 import { isUnauthorized } from "./client";
+import { keys } from "./keys";
+import { endSession, sessionVersion } from "./queryClient";
 import { addDays, toISO } from "../lib/dates";
-import type { Habit, HabitStats, HabitWithStats, User } from "./types";
+import type { Checkin, CreateHabitInput, Habit, HabitStats, HabitWithStats, User, UserChanges } from "./types";
 
-/**
- * Скільки днів відміток тягнемо з сервера.
- *
- * Одне число на весь застосунок, і саме тому воно таке: теплова карта
- * показує 84 дні (12 тижнів), аналітика — до 90. Беремо 120 із запасом,
- * і обидва екрани користуються ОДНИМ кешем, бо ключ у них збігається.
- *
- * Спершу тут меж не було взагалі — `listCheckins` просила всю історію.
- * На звичці віком у місяць різниці не видно, а через три роки це понад
- * тисяча записів, щоб намалювати 84 квадратики.
- *
- * Важливий наслідок: підсумок «за весь час» рахувати з цих даних НЕ
- * МОЖНА — це вікно, а не вся історія. Таке число бере `/stats`, де воно
- * рахується в базі по всіх рядках (поле `total`).
- */
+// Аналітика й календар ділять одне 120-денне вікно. Повні підсумки бере /stats.
 export const CHECKIN_WINDOW_DAYS = 120;
+const HABIT_CHANGE = keys.habitChange;
 
-/** Найраніший день, який просимо в сервера. */
-function windowStart(): string {
-  return toISO(addDays(new Date(), -(CHECKIN_WINDOW_DAYS - 1)));
+function windowStart(end: Date): string {
+  return toISO(addDays(end, -(CHECKIN_WINDOW_DAYS - 1)));
 }
 
-/**
- * Ключі кешу в одному місці.
- *
- * Ключ — це масив, за яким TanStack Query впізнає запит. Якщо
- * розкидати рядки `["habits"]` по файлах, рано чи пізно десь буде
- * `["habit"]`, і кеш мовчки роздвоїться. Тому — єдине джерело.
- */
-export const keys = {
-  me: ["me"] as const,
-  habits: ["habits"] as const,
-  stats: ["stats"] as const,
-
-  // Період входить у ключ: дані за різні вікна — це різні дані, і
-  // складати їх в один запис кешу означало б показувати вчорашній
-  // діапазон після опівночі.
-  checkins: (habitId: number, since: string) => ["checkins", habitId, since] as const,
-
-  // Для скидання кешу: без періоду ключ стає ПРЕФІКСОМ і накриває всі
-  // періоди цієї звички одразу. Саме так працює invalidateQueries —
-  // за збігом початку ключа, а не цілком.
-  checkinsOf: (habitId: number) => ["checkins", habitId] as const,
-};
-
-// ---------- Читання ----------
-
-/**
- * Хто ми. Ця ж відповідь відповідає на питання «чи ми взагалі увійшли».
- *
- * `retry: false` тут обов'язковий. За замовчуванням бібліотека повторює
- * невдалий запит тричі — розумно для мережевого збою, але безглуздо
- * для 401: без cookie він і вчетверте буде 401. Без цього рядка екран
- * входу з'являвся б із затримкою в кілька секунд.
- */
 export function useMe() {
-  return useQuery<User>({
-    queryKey: keys.me,
-    queryFn: api.getMe,
-    retry: false,
-    // Один раз увійшли — і більше не смикаємо сервер на кожному фокусі
-    // вкладки: хто ми такі, протягом сеансу не змінюється.
-    staleTime: Infinity,
-  });
+  return useQuery<User | null>({ queryKey: keys.me, queryFn: api.getMe, retry: false, staleTime: Infinity });
 }
 
-export function useHabits(enabled: boolean) {
-  return useQuery<Habit[]>({
-    queryKey: keys.habits,
-    queryFn: api.listHabits,
-    enabled,
-  });
+/** Дата належить часовому поясу профілю. Перевіряємо щохвилини і при поверненні. */
+export function useToday(enabled: boolean) {
+  const client = useQueryClient();
+  const query = useQuery({ queryKey: keys.today, queryFn: api.getToday, enabled,
+    staleTime: 0, refetchInterval: () => 60_000 - Date.now() % 60_000, refetchOnWindowFocus: "always" });
+  const previous = useRef(query.data?.day);
+  useEffect(() => {
+    if (previous.current && query.data?.day && previous.current !== query.data.day) {
+      void client.invalidateQueries({ queryKey: keys.stats });
+    }
+    previous.current = query.data?.day;
+  }, [client, query.data?.day]);
+  return query;
 }
 
-export function useStats(enabled: boolean) {
-  return useQuery<HabitStats[]>({
-    queryKey: keys.stats,
-    queryFn: api.listStats,
-    enabled,
-  });
+export function useHabits(enabled: boolean, includeArchived = false) {
+  return useQuery<Habit[]>({ queryKey: includeArchived ? keys.allHabits : keys.habits,
+    queryFn: () => api.listHabits(includeArchived), enabled });
 }
 
-/**
- * Звички і показники, склеєні в один список для компонентів.
- *
- * Два запити йдуть ПАРАЛЕЛЬНО — це не той випадок, коли другий
- * залежить від першого. Склейка — звичайний код, без useMemo:
- * тут лінійний прохід по кількох елементах, і мемоїзація коштувала б
- * більше, ніж економила.
- */
-export function useHabitsWithStats(enabled: boolean) {
-  const habits = useHabits(enabled);
-  const stats = useStats(enabled);
+export function useStats(enabled: boolean, includeArchived = false) {
+  return useQuery<HabitStats[]>({ queryKey: includeArchived ? keys.allStats : keys.stats,
+    queryFn: () => api.listStats(includeArchived), enabled });
+}
 
-  const byId = new Map((stats.data ?? []).map((s) => [s.habit_id, s]));
-
+export function useHabitsWithStats(enabled: boolean, includeArchived = false) {
+  const habits = useHabits(enabled, includeArchived);
+  const stats = useStats(enabled, includeArchived);
+  const byId = new Map((stats.data ?? []).map((row) => [row.habit_id, row]));
   const items: HabitWithStats[] = (habits.data ?? []).map((habit) => ({
-    habit,
-    // Порожні показники — коли звичку щойно створили, а /stats ще не
-    // перезапитали. Малювати нуль чесніше, ніж не малювати рядок узагалі.
-    stats: byId.get(habit.id) ?? emptyStats(habit.id),
+    habit, stats: byId.get(habit.id) ?? emptyStats(habit.id),
   }));
-
-  return {
-    items,
-    isLoading: habits.isLoading || stats.isLoading,
-    error: habits.error ?? stats.error,
-  };
+  return { items, isLoading: habits.isLoading || stats.isLoading,
+    error: habits.error ?? stats.error, refetch: () => Promise.all([habits.refetch(), stats.refetch()]) };
 }
 
 function emptyStats(habitId: number): HabitStats {
-  return {
-    habit_id: habitId,
-    total: 0,
-    current_streak: 0,
-    longest_streak: 0,
-    done_today: false,
-    last_day: null,
-  };
+  return { habit_id: habitId, total: 0, current_streak: 0, longest_streak: 0, done_today: false, last_day: null };
 }
 
-/** Відмітки однієї звички за вікно CHECKIN_WINDOW_DAYS — для теплової карти. */
-export function useCheckins(habitId: number, enabled = true) {
-  const since = windowStart();
-
-  return useQuery({
-    queryKey: keys.checkins(habitId, since),
-    queryFn: () => api.listCheckins(habitId, { since }),
-    enabled,
-  });
+export function useCheckins(habitId: number, enabled: boolean, end: Date) {
+  const since = windowStart(end);
+  return useQuery({ queryKey: keys.checkins(habitId, since),
+    queryFn: () => api.listCheckins(habitId, { since, until: toISO(end) }), enabled });
 }
 
-/**
- * Відмітки ВСІХ звичок одразу — потрібні екрану аналітики.
- *
- * `useQueries` замість циклу з `useQuery`: кількість звичок заздалегідь
- * невідома, а хуки не можна викликати в циклі зі змінною довжиною —
- * React звіряє їхній порядок між рендерами й на зміні довжини зламався б.
- * `useQueries` приймає масив описів і розв'язує цю задачу штатно.
- *
- * Ключі ті самі, що в `useCheckins`, тому дані спільні: розгорнутий
- * календар і графіки не ходять у мережу двічі за одним і тим самим.
- */
-export function useAllCheckins(habitIds: number[], enabled: boolean) {
-  const since = windowStart();
-
-  const results = useQueries({
-    queries: habitIds.map((id) => ({
-      // Ключ і період ті самі, що в useCheckins — тому розгорнутий
-      // календар і графіки ходять у мережу один раз на двох.
-      queryKey: keys.checkins(id, since),
-      queryFn: () => api.listCheckins(id, { since }),
-      enabled,
-    })),
-  });
-
+export function useAllCheckins(habitIds: number[], enabled: boolean, today: Date) {
+  const since = windowStart(today);
+  const results = useQueries({ queries: habitIds.map((id) => ({
+    queryKey: keys.checkins(id, since),
+    queryFn: () => api.listCheckins(id, { since, until: toISO(today) }), enabled,
+  })) });
   const daysByHabit = new Map<number, Set<string>>();
   habitIds.forEach((id, index) => {
     const data = results[index]?.data;
-    if (data) daysByHabit.set(id, new Set(data.map((c) => c.day)));
+    if (data) daysByHabit.set(id, new Set(data.map((checkin) => checkin.day)));
   });
-
-  return {
-    daysByHabit,
-    isLoading: results.some((r) => r.isLoading),
-    error: results.find((r) => r.error)?.error ?? null,
-  };
+  return { daysByHabit, isLoading: results.some((result) => result.isLoading),
+    error: results.find((result) => result.error)?.error ?? null,
+    refetch: () => Promise.all(results.map((result) => result.refetch())) };
 }
 
-// ---------- Зміни ----------
+export function useHabitPending(habitId: number): boolean {
+  return useIsMutating({ mutationKey: HABIT_CHANGE, predicate: (mutation) => {
+    const variables = mutation.state.variables;
+    return typeof variables === "number" ? variables === habitId
+      : (variables as { habitId?: number } | undefined)?.habitId === habitId;
+  } }) > 0;
+}
 
-/**
- * Перемкнути сьогоднішню відмітку.
- *
- * Найцікавіше місце всього фронтенду, тому докладно.
- *
- * `onMutate` спрацьовує ДО походу в мережу. Ми одразу правимо кеш
- * статистики, і React перемальовує кнопку в новий стан. Людина бачить
- * реакцію миттєво, навіть на поганому мобільному інтернеті.
- *
- * Якщо сервер відмовить, `onError` поверне збережений знімок кешу —
- * кнопка «відскочить» назад. Це і є відкат.
- */
+interface ToggleInput { habitId: number; done: boolean; day: string; today: string }
+
 export function useToggleCheckin() {
   const client = useQueryClient();
-
   return useMutation({
-    mutationFn: async ({ habitId, done }: { habitId: number; done: boolean }) => {
-      const today = toISO(new Date());
-      return done ? api.undoCheckIn(habitId, today) : api.checkIn(habitId, today);
-    },
-
-    onMutate: async ({ habitId, done }) => {
-      // Скасовуємо запити статистики, що вже летять. Інакше відповідь
-      // на старий запит могла б приземлитися ПІСЛЯ нашої правки й
-      // затерти її старими даними — класична гонка.
-      await client.cancelQueries({ queryKey: keys.stats });
-
-      const snapshot = client.getQueryData<HabitStats[]>(keys.stats);
-
-      client.setQueryData<HabitStats[]>(keys.stats, (old) =>
-        (old ?? []).map((s) => (s.habit_id === habitId ? applyToggle(s, done) : s)),
-      );
-
-      return { snapshot };
-    },
-
-    onError: (_error, _variables, context) => {
-      if (context?.snapshot) {
-        client.setQueryData(keys.stats, context.snapshot);
+    mutationKey: HABIT_CHANGE,
+    mutationFn: ({ habitId, done, day }: ToggleInput) => done ? api.undoCheckIn(habitId, day) : api.checkIn(habitId, day),
+    onMutate: async ({ habitId, done, day, today }) => {
+      await Promise.all([client.cancelQueries({ queryKey: keys.stats }), client.cancelQueries({ queryKey: keys.checkinsOf(habitId) })]);
+      // Зберігаємо тільки рядок цієї звички: її помилка не скасує сусідню відмітку.
+      const snapshots = client.getQueriesData<HabitStats[]>({ queryKey: keys.stats }).map(([key, rows]) => ({
+        key, row: rows?.find((row) => row.habit_id === habitId),
+      }));
+      client.setQueriesData<HabitStats[]>({ queryKey: keys.stats }, (old) => old?.map((row) => {
+        if (row.habit_id !== habitId) return row;
+        const changed = applyToggle(row, done, day);
+        return day === today ? changed : { ...changed, done_today: row.done_today };
+      }));
+      const history = client.getQueriesData<Checkin[]>({ queryKey: keys.checkinsOf(habitId) });
+      for (const [key, rows] of history) {
+        // Вікно задається since й має фіксовану довжину. Не домішуємо чужий період.
+        const since = String(key[2]);
+        if (!rows || day < since || day > toISO(addDays(new Date(`${since}T00:00:00`), CHECKIN_WINDOW_DAYS - 1))) continue;
+        client.setQueryData<Checkin[]>(key, done ? rows.filter((row) => row.day !== day)
+          : [...rows.filter((row) => row.day !== day), { id: -1, habit_id: habitId, day }]);
       }
+      return { snapshots, history };
     },
-
-    onSettled: (_data, _error, variables) => {
-      // Хай там як закінчилося — питаємо сервер, як воно насправді.
-      // Наша арифметика точна для серій, але не для longest_streak:
-      // порахувати найдовшу серію за всю історію, маючи лише підсумки,
-      // неможливо. Тому останнє слово лишається за сервером.
-      void client.invalidateQueries({ queryKey: keys.stats });
-      void client.invalidateQueries({ queryKey: keys.checkinsOf(variables.habitId) });
+    onError: (error, { habitId }, context) => {
+      if (isUnauthorized(error)) return;
+      for (const { key, row } of context?.snapshots ?? []) {
+        if (row) client.setQueryData<HabitStats[]>(key, (current) => current?.map((item) => item.habit_id === habitId ? row : item));
+      }
+      for (const [key, rows] of context?.history ?? []) client.setQueryData(key, rows);
+    },
+    onSettled: async (_data, error, { habitId }) => {
+      if (isUnauthorized(error)) return;
+      await client.invalidateQueries({ queryKey: keys.checkinsOf(habitId) });
     },
   });
 }
 
-/**
- * Передбачити, якою стане статистика після перемикання.
- *
- * Чому `current_streak` міняється рівно на одиницю в обидва боки:
- *
- * Ставимо відмітку. Серія або була нульовою (вчора теж порожньо) —
- * стане 1; або тривала з учорашнього дня і дорівнювала N — стане N+1.
- * В обох випадках +1.
- *
- * Знімаємо відмітку. Серія рахувалася з сьогодні й дорівнювала N.
- * Якщо вчора відмічено, серія виживе довжиною N−1; якщо ні — N було
- * одиницею, і стане 0, тобто теж N−1.
- *
- * Приємний збіг, але саме тому він тут і записаний: без пояснення
- * наступний читач вирішив би, що це груба заглушка.
- */
-export function applyToggle(stats: HabitStats, wasDone: boolean): HabitStats {
-  const delta = wasDone ? -1 : 1;
-  return {
-    ...stats,
-    done_today: !wasDone,
-    total: Math.max(0, stats.total + delta),
-    current_streak: Math.max(0, stats.current_streak + delta),
-    last_day: wasDone ? stats.last_day : toISO(new Date()),
-  };
+/** Серії залежать від розкладу та історії; їхній точний результат поверне сервер. */
+export function applyToggle(stats: HabitStats, wasDone: boolean, day?: string): HabitStats {
+  return { ...stats, done_today: !wasDone, total: Math.max(0, stats.total + (wasDone ? -1 : 1)),
+    last_day: !wasDone && day && (!stats.last_day || day > stats.last_day) ? day : stats.last_day };
 }
 
 export function useCreateHabit() {
-  const client = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ name, description }: { name: string; description: string }) =>
-      api.createHabit(name, description),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: keys.habits });
-      void client.invalidateQueries({ queryKey: keys.stats });
-    },
-  });
+  return useMutation({ mutationKey: HABIT_CHANGE, mutationFn: (input: CreateHabitInput) => api.createHabit(input) });
 }
 
 export function useDeleteHabit() {
   const client = useQueryClient();
-
-  return useMutation({
-    mutationFn: (habitId: number) => api.deleteHabit(habitId),
-
-    onMutate: async (habitId) => {
-      await client.cancelQueries({ queryKey: keys.habits });
-      const snapshot = client.getQueryData<Habit[]>(keys.habits);
-
-      // Прибираємо рядок одразу: видалення — дія, після якої чекати
-      // на мережу найнеприємніше, бо елемент лишається на екрані
-      // і виглядає так, ніби натискання не спрацювало.
-      client.setQueryData<Habit[]>(keys.habits, (old) =>
-        (old ?? []).filter((h) => h.id !== habitId),
-      );
-
-      return { snapshot };
-    },
-
-    onError: (_error, _habitId, context) => {
-      if (context?.snapshot) client.setQueryData(keys.habits, context.snapshot);
-    },
-
-    onSettled: () => {
-      void client.invalidateQueries({ queryKey: keys.habits });
-      void client.invalidateQueries({ queryKey: keys.stats });
-    },
-  });
+  return useMutation({ mutationKey: HABIT_CHANGE, mutationFn: api.deleteHabit,
+    onSuccess: (_data, habitId) => client.removeQueries({ queryKey: keys.checkinsOf(habitId), type: "inactive" }) });
 }
 
 export function useRenameHabit() {
-  const client = useQueryClient();
+  return useMutation({ mutationKey: HABIT_CHANGE,
+    mutationFn: ({ habitId, name }: { habitId: number; name: string }) => api.updateHabit(habitId, { name }) });
+}
 
-  return useMutation({
-    mutationFn: ({ habitId, name }: { habitId: number; name: string }) =>
-      api.updateHabit(habitId, { name }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: keys.habits }),
-  });
+export function useArchiveHabit() {
+  return useMutation({ mutationKey: HABIT_CHANGE,
+    mutationFn: ({ habitId, archived }: { habitId: number; archived: boolean }) => api.updateHabit(habitId, { archived }) });
+}
+
+export function useUpdateMe() {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: (changes: UserChanges) => api.updateMe(changes),
+    onMutate: () => sessionVersion(client),
+    onSuccess: async (user, _changes, version) => {
+      if (version !== sessionVersion(client)) return;
+      client.setQueryData(keys.me, user);
+      await client.invalidateQueries({ queryKey: keys.today });
+      await client.invalidateQueries({ queryKey: keys.stats });
+    } });
 }
 
 export function useLogout() {
   const client = useQueryClient();
-
-  return useMutation({
-    mutationFn: api.logout,
-    onSuccess: () => {
-      // Чистимо ВЕСЬ кеш, а не окремі ключі. Лишити чужі звички
-      // в пам'яті після виходу — це те, чого робити не можна:
-      // наступний, хто увійде в цьому браузері, побачив би їх
-      // на частку секунди, поки не приїдуть його власні.
-      client.clear();
-    },
-  });
+  return useMutation({ mutationFn: api.logout, onSuccess: () => endSession(client) });
 }
 
-/** Після успішного входу: скинути «ми не автентифіковані» і перезапитати все. */
 export function markLoggedIn(client: QueryClient): void {
-  void client.invalidateQueries();
+  void client.invalidateQueries({ queryKey: keys.me });
 }
 
-export { isUnauthorized };
+export { isUnauthorized, keys };

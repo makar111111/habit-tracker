@@ -17,6 +17,9 @@ export interface Habit {
   name: string;
   /** У базі NOT NULL із порожнім рядком за замовчуванням, тому не `null`. */
   description: string;
+  start_date: string | null;
+  weekdays: number[];
+  archived_at: string | null;
 }
 
 /**
@@ -50,7 +53,19 @@ export interface User {
   id: number;
   telegram_id: number | null;
   name: string;
+  timezone: string;
+  reminder_hour: number;
+  reminders_enabled: boolean;
 }
+
+export interface CreateHabitInput {
+  name: string;
+  description: string;
+  start_date: string;
+  weekdays: number[];
+}
+
+export type UserChanges = Partial<Pick<User, "name" | "timezone" | "reminder_hour" | "reminders_enabled">>;
 
 /** Відповідь на `POST /auth/login-code`. */
 export interface LoginCode {

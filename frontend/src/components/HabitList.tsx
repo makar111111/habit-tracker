@@ -5,9 +5,10 @@ interface Props {
   items: HabitWithStats[];
   isLoading: boolean;
   today: Date;
+  emptyMessage?: string;
 }
 
-export function HabitList({ items, isLoading, today }: Props) {
+export function HabitList({ items, isLoading, today, emptyMessage = "Поки що жодної звички. Додай першу вище." }: Props) {
   if (isLoading) {
     // Три скелети — приблизно стільки звичок у типового користувача.
     // Сенс не в точності, а в тому, щоб сторінка не стрибала, коли
@@ -22,7 +23,7 @@ export function HabitList({ items, isLoading, today }: Props) {
   }
 
   if (items.length === 0) {
-    return <p className="empty">Поки що жодної звички. Додай першу вище.</p>;
+    return <p className="empty">{emptyMessage}</p>;
   }
 
   return (

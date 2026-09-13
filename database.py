@@ -1,6 +1,6 @@
 """Підключення до бази даних."""
 
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, create_engine
 
 from config import DATABASE_URL
 
@@ -12,10 +12,10 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
 
 def create_db_and_tables() -> None:
-    """Створити файл бази й таблиці, якщо їх ще немає."""
-    # SQLModel пам'ятає всі класи з table=True і створює таблиці під них.
-    # Якщо таблиця вже є — нічого не робить, тож викликати безпечно.
-    SQLModel.metadata.create_all(engine)
+    """Створити нову базу або безпечно оновити схему з резервною копією."""
+    from migrations import upgrade
+
+    upgrade(engine)
 
 
 def get_session():
