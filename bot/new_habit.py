@@ -1,4 +1,4 @@
-"""Створення звички діалогом: назва → опис.
+"""Створення звички діалогом: назва → опис → розклад.
 
 Тут працює FSM — машина станів. Ідея проста: бот памʼятає, на якому
 кроці розмови перебуває кожен співрозмовник. Без неї бот не відрізнив
@@ -15,11 +15,18 @@ from collections import defaultdict
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, StateFilter
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from bot.api import MAX_NAME_LENGTH, HabitsAPI
-from bot.keyboards import MenuCallback, skip_description_keyboard
+from bot.keyboards import (
+    MenuCallback,
+    ScheduleCallback,
+    schedule_keyboard,
+    skip_description_keyboard,
+)
+from bot.schedule import EVERY_DAY, WORKDAYS, schedule_label, toggle_day
 from bot.views import habits_view
 
 router = Router(name="new_habit")
@@ -44,6 +51,24 @@ class NewHabit(StatesGroup):
 
     name = State()
     description = State()
+    weekdays = State()
+
+
+def schedule_prompt(weekdays: list[int]) -> str:
+    """Питання про розклад із поточним вибором.
+
+    Розклад окремим обов'язковим кроком, а не прихованою кнопкою: після
+    створення його змінити не можна (так вирішено в специфікації, щоб
+    редагування не переписувало минулі відсотки). Отже, створення — єдиний
+    момент, коли людина взагалі може його обрати.
+    """
+    current = schedule_label(weekdays) if weekdays else "жодного дня"
+    return (
+        "Коли виконувати?\n\n"
+        "Натискай дні, щоб увімкнути чи вимкнути. Розклад не змінюється "
+        "після створення — так історія лишається точною.\n\n"
+        f"Зараз: <b>{current}</b>"
+    )
 
 
 # ---------- вхід у діалог ----------
@@ -159,12 +184,28 @@ LOST_STATE = (
 _dialog_locks: dict[tuple[int, int], asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
+async def ask_schedule(
+    state: FSMContext, chat_id: int, telegram_id: int, description: str
+) -> bool:
+    """Запам'ятати опис і перейти до розкладу.
+
+    False — якщо на кроці опису нас уже немає: це подвійний клік
+    «Пропустити», і перший виклик уже показав питання про розклад.
+    Без перевірки під локом людина отримала б два однакові повідомлення.
+    """
+    async with _dialog_locks[(chat_id, telegram_id)]:
+        if await state.get_state() != NewHabit.description.state:
+            return False
+        await state.update_data(description=description, weekdays=EVERY_DAY)
+        await state.set_state(NewHabit.weekdays)
+        return True
+
+
 async def finish(
     api: HabitsAPI,
     state: FSMContext,
     chat_id: int,
     telegram_id: int,
-    description: str,
 ) -> tuple[str, InlineKeyboardMarkup] | None:
     """Створити звичку й прибрати за собою стан.
 
@@ -185,15 +226,18 @@ async def finish(
         # спрацює. У зворотному порядку збій губив би назву й опис
         # безповоротно разом зі станом — а «спробуй ще раз» виконати
         # було б неможливо: наступне повідомлення падало б у порожнечу.
-        await api.create_habit(telegram_id, name, description)
+        await api.create_habit(
+            telegram_id,
+            name,
+            data.get("description", ""),
+            weekdays=data.get("weekdays", EVERY_DAY),
+        )
         await state.clear()
         return await habits_view(api, telegram_id)
 
 
 @router.message(NewHabit.description, F.text)
-async def got_description(
-    message: Message, state: FSMContext, api: HabitsAPI
-) -> None:
+async def got_description(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
         return
 
@@ -206,13 +250,8 @@ async def got_description(
         )
         return
 
-    result = await finish(api, state, message.chat.id, message.from_user.id, description)
-    if result is None:
-        await message.answer(LOST_STATE)
-        return
-
-    text, keyboard = result
-    await message.answer(f"Готово! ✅\n\n{text}", reply_markup=keyboard)
+    if await ask_schedule(state, message.chat.id, message.from_user.id, description):
+        await message.answer(schedule_prompt(EVERY_DAY), reply_markup=schedule_keyboard(EVERY_DAY))
 
 
 @router.message(NewHabit.description)
@@ -237,9 +276,7 @@ async def description_must_be_text(message: Message) -> None:
 @router.callback_query(
     NewHabit.description, MenuCallback.filter(F.action == "skip_description")
 )
-async def skipped_description(
-    callback: CallbackQuery, state: FSMContext, api: HabitsAPI
-) -> None:
+async def skipped_description(callback: CallbackQuery, state: FSMContext) -> None:
     # Підтверджуємо натискання ПЕРШИМ ділом, ще до будь-яких перевірок.
     # Інакше на гілці з return кнопка лишилася б із «годинником»
     # до самого таймауту — бот виглядав би зависшим.
@@ -248,9 +285,72 @@ async def skipped_description(
     if callback.from_user is None or callback.message is None:
         return
 
-    result = await finish(
-        api, state, callback.message.chat.id, callback.from_user.id, ""
-    )
+    if await ask_schedule(state, callback.message.chat.id, callback.from_user.id, ""):
+        await callback.bot.send_message(
+            callback.message.chat.id,
+            schedule_prompt(EVERY_DAY),
+            reply_markup=schedule_keyboard(EVERY_DAY),
+        )
+
+
+# ---------- крок 3: розклад ----------
+
+
+@router.callback_query(
+    NewHabit.weekdays,
+    ScheduleCallback.filter(F.action.in_({"toggle", "daily", "workdays"})),
+)
+async def changed_schedule(
+    callback: CallbackQuery, callback_data: ScheduleCallback, state: FSMContext
+) -> None:
+    await callback.answer()
+    if callback.from_user is None or callback.message is None:
+        return
+    # Дані кнопки приходять від клієнта Telegram, і змінений клієнт може
+    # надіслати будь-що. День 99 інакше тихо дожив би до API й упав там 422.
+    if callback_data.action == "toggle" and not 0 <= callback_data.day <= 6:
+        return
+
+    # Під тим самим локом, що й створення: два швидкі дотики до різних днів
+    # читали б один і той самий стан, і другий затер би зміну першого.
+    # Редагування повідомлення теж усередині — інакше відповіді могли б
+    # прийти в Telegram у зворотному порядку й показати застарілий вибір.
+    async with _dialog_locks[(callback.message.chat.id, callback.from_user.id)]:
+        current = (await state.get_data()).get("weekdays", EVERY_DAY)
+        if callback_data.action == "toggle":
+            chosen = toggle_day(current, callback_data.day)
+        elif callback_data.action == "daily":
+            chosen = EVERY_DAY
+        else:
+            chosen = WORKDAYS
+        if chosen == current:
+            return
+        await state.update_data(weekdays=chosen)
+
+        if isinstance(callback.message, Message):
+            try:
+                await callback.message.edit_text(
+                    schedule_prompt(chosen), reply_markup=schedule_keyboard(chosen)
+                )
+            except TelegramBadRequest as error:
+                if "message is not modified" not in str(error):
+                    raise
+
+
+@router.callback_query(NewHabit.weekdays, ScheduleCallback.filter(F.action == "done"))
+async def schedule_done(callback: CallbackQuery, state: FSMContext, api: HabitsAPI) -> None:
+    if callback.from_user is None or callback.message is None:
+        await callback.answer()
+        return
+
+    # Відповісти на натискання можна лише один раз, тому спершу вирішуємо,
+    # що сказати. Читання стану з пам'яті миттєве — «годинник» не встигне.
+    if not (await state.get_data()).get("weekdays"):
+        await callback.answer("Обери хоча б один день.", show_alert=True)
+        return
+    await callback.answer()
+
+    result = await finish(api, state, callback.message.chat.id, callback.from_user.id)
     if result is None:
         await callback.bot.send_message(callback.message.chat.id, LOST_STATE)
         return
@@ -258,4 +358,12 @@ async def skipped_description(
     text, keyboard = result
     await callback.bot.send_message(
         callback.message.chat.id, f"Готово! ✅\n\n{text}", reply_markup=keyboard
+    )
+
+
+@router.message(NewHabit.weekdays)
+async def schedule_expects_buttons(message: Message) -> None:
+    """Текст замість кнопок. Мовчання тут виглядало б як зависання."""
+    await message.answer(
+        "Обери дні кнопками вище й натисни «Створити звичку». Або /cancel."
     )

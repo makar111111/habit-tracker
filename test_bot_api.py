@@ -323,9 +323,11 @@ def make_state() -> FSMContext:
 
 async def test_finish_creates_habit_and_clears_state(api: HabitsAPI):
     state = make_state()
-    await state.update_data(name="Йога")
+    # Опис і розклад тепер приходять зі стану, а не аргументами:
+    # до finish діалог доходить уже після кроку розкладу.
+    await state.update_data(name="Йога", description="щоранку", weekdays=[0, 2, 4])
 
-    result = await finish(api, state, 1, OLENA, "щоранку")
+    result = await finish(api, state, 1, OLENA)
 
     assert result is not None
     text, keyboard = result
@@ -334,6 +336,7 @@ async def test_finish_creates_habit_and_clears_state(api: HabitsAPI):
     habits = await api.list_habits(OLENA)
     assert habits[0]["name"] == "Йога"
     assert habits[0]["description"] == "щоранку"
+    assert habits[0]["weekdays"] == [0, 2, 4]
 
     # Стан має бути прибраний, інакше наступне повідомлення людини
     # знову сприймалося б як частина діалогу.
@@ -350,7 +353,7 @@ async def test_finish_returns_none_when_name_lost(api: HabitsAPI):
     """
     state = make_state()  # даних немає
 
-    assert await finish(api, state, 1, OLENA, "") is None
+    assert await finish(api, state, 1, OLENA) is None
 
 
 async def test_finish_preserves_state_when_create_fails(
@@ -364,19 +367,24 @@ async def test_finish_preserves_state_when_create_fails(
     (стан None не підходить жодному обробнику).
     """
     state = make_state()
-    await state.update_data(name="Зарядка")
+    await state.update_data(name="Зарядка", description="опис", weekdays=[0, 2, 4])
+
+    from bot.api import ApiUnavailable
 
     async def failing(*args, **kwargs):
-        from bot.api import ApiUnavailable
         raise ApiUnavailable("симуляція обриву")
 
     monkeypatch.setattr(api, "create_habit", failing)
 
-    with pytest.raises(Exception):
-        await finish(api, state, 1, OLENA, "опис")
+    # Саме ApiUnavailable, а не будь-який Exception. З широким Exception цей
+    # тест колись пройшов фальшиво: виклик із застарілою сигнатурою кидав
+    # TypeError ще ДО входу у finish, тіло не виконувалось, стан ніхто не
+    # чіпав — і перевірки нижче зеленіли, нічого не перевіривши.
+    with pytest.raises(ApiUnavailable):
+        await finish(api, state, 1, OLENA)
 
-    # Стан і дані мають вціліти — саме це дає змогу повторити спробу.
-    assert await state.get_data() == {"name": "Зарядка"}
+    # Стан і дані мають вціліти — разом із розкладом, щоб повтор не питав його знову.
+    assert await state.get_data() == {"name": "Зарядка", "description": "опис", "weekdays": [0, 2, 4]}
     assert await api.list_habits(OLENA) == []
 
     # І головне: жодної звички при цьому не створено.
@@ -399,3 +407,12 @@ async def test_parallel_requests_do_not_corrupt_each_other(api: HabitsAPI):
     )
 
     assert all(len(r) == 3 for r in results)
+
+
+async def test_create_habit_sends_schedule(api: HabitsAPI):
+    """Без weekdays API ставить «щодня» — саме тому бот раніше не міг інакше."""
+    habit = await api.create_habit(OLENA, "Спортзал", weekdays=[0, 2, 4])
+    assert habit["weekdays"] == [0, 2, 4]
+
+    daily = await api.create_habit(OLENA, "Йога")
+    assert daily["weekdays"] == [0, 1, 2, 3, 4, 5, 6]

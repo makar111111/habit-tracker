@@ -9,6 +9,8 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from bot.schedule import WEEKDAY_NAMES
+
 # Telegram обмежує підпис кнопки. Назва звички може бути до 100 символів,
 # тож довгу доведеться вкоротити, інакше API відхилить усе повідомлення.
 MAX_BUTTON_TEXT = 40
@@ -40,6 +42,16 @@ class MenuCallback(CallbackData, prefix="menu"):
     """Кнопки, не привʼязані до конкретної звички."""
 
     action: str
+
+
+class ScheduleCallback(CallbackData, prefix="sched"):
+    """Кнопки кроку розкладу: "toggle" з номером дня, "daily", "workdays", "done".
+
+    day має значення лише для "toggle"; для решти дій лишається 0.
+    """
+
+    action: str
+    day: int = 0
 
 
 def shorten(text: str) -> str:
@@ -193,4 +205,21 @@ def skip_description_keyboard() -> InlineKeyboardMarkup:
     builder.button(
         text="Пропустити", callback_data=MenuCallback(action="skip_description")
     )
+    return builder.as_markup()
+
+
+def schedule_keyboard(weekdays: list[int]) -> InlineKeyboardMarkup:
+    """Дні тижня перемикачами, дві швидкі кнопки й «Створити».
+
+    Дні — у два ряди (4 + 3): сім кнопок з позначкою в один ряд на
+    телефоні обрізаються до «✅ П…», і Пн уже не відрізнити від Пт.
+    """
+    builder = InlineKeyboardBuilder()
+    for day, name in enumerate(WEEKDAY_NAMES):
+        mark = "✅" if day in weekdays else "▫️"
+        builder.button(text=f"{mark} {name}", callback_data=ScheduleCallback(action="toggle", day=day))
+    builder.button(text="Щодня", callback_data=ScheduleCallback(action="daily"))
+    builder.button(text="Будні", callback_data=ScheduleCallback(action="workdays"))
+    builder.button(text="Створити звичку", callback_data=ScheduleCallback(action="done"))
+    builder.adjust(4, 3, 2, 1)
     return builder.as_markup()

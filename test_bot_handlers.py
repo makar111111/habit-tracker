@@ -256,6 +256,7 @@ async def create_habit_via_dialog(tg: BotUnderTest, name: str) -> int:
     await tg.send("/new")
     await tg.send(name)
     await tg.tap("menu:skip_description")
+    await tg.tap("sched:done:0")
 
     habits = await tg.api.list_habits(USER.id)
     return habits[-1]["id"]
@@ -303,17 +304,27 @@ async def test_full_creation_dialog(tg: BotUnderTest):
     assert tg.buttons == ["Пропустити"]
 
     await tg.tap("menu:skip_description")
+    assert "Коли виконувати" in tg.texts[-1]
+    assert "Зараз: <b>Щодня</b>" in tg.texts[-1]
+    assert tg.buttons[:7] == ["✅ Пн", "✅ Вт", "✅ Ср", "✅ Чт", "✅ Пт", "✅ Сб", "✅ Нд"]
+    assert "Створити звичку" in tg.buttons
+    # Звички ще немає: без розкладу створювати рано.
+    assert await tg.api.list_habits(USER.id) == []
+
+    await tg.tap("sched:done:0")
     assert "Готово" in tg.texts[-1]
     assert "⬜ Зарядка" in tg.buttons
 
     habits = await tg.api.list_habits(USER.id)
     assert [h["name"] for h in habits] == ["Зарядка"]
+    assert habits[0]["weekdays"] == [0, 1, 2, 3, 4, 5, 6]
 
 
 async def test_description_is_saved(tg: BotUnderTest):
     await tg.send("/new")
     await tg.send("Читати")
     await tg.send("20 хвилин перед сном")
+    await tg.tap("sched:done:0")
 
     habits = await tg.api.list_habits(USER.id)
     assert habits[0]["description"] == "20 хвилин перед сном"
@@ -599,8 +610,8 @@ async def test_tapping_habit_mid_dialog_does_not_silently_end_it(tg: BotUnderTes
 # ---------- подвійний клік «Пропустити» ----------
 
 
-async def test_double_click_skip_creates_exactly_one_habit(tg: BotUnderTest):
-    """Два майже одночасні кліки «Пропустити» — рівно одна звичка.
+async def test_double_click_create_makes_exactly_one_habit(tg: BotUnderTest):
+    """Два майже одночасні кліки «Створити звичку» — рівно одна звичка.
 
     Раніше два виклики finish() могли обидва прочитати той самий стан
     ДО того, як перший його прибере: другий бачив порожні дані й казав
@@ -610,10 +621,11 @@ async def test_double_click_skip_creates_exactly_one_habit(tg: BotUnderTest):
     """
     await tg.send("/new")
     await tg.send("Читати")
+    await tg.tap("menu:skip_description")
 
     tg.bot.session.sent.clear()
-    u1 = tg.make_tap("menu:skip_description")
-    u2 = tg.make_tap("menu:skip_description")
+    u1 = tg.make_tap("sched:done:0")
+    u2 = tg.make_tap("sched:done:0")
     await asyncio.gather(tg.feed(u1), tg.feed(u2))
 
     habits = await tg.api.list_habits(USER.id)
@@ -746,6 +758,7 @@ async def test_habit_card_shows_stats_and_description(tg: BotUnderTest):
     await tg.send("/new")
     await tg.send("Зарядка")
     await tg.send("одразу після пробудження")
+    await tg.tap("sched:done:0")
 
     habit_id = (await tg.api.list_habits(USER.id))[0]["id"]
     await tg.api.check_in(USER.id, habit_id)
@@ -769,6 +782,7 @@ async def test_habit_card_escapes_html_in_name(tg: BotUnderTest):
     await tg.send("/new")
     await tg.send("Читати <Дюну>")
     await tg.tap("menu:skip_description")
+    await tg.tap("sched:done:0")
 
     habit_id = (await tg.api.list_habits(USER.id))[0]["id"]
     await tg.tap(f"habit:open:{habit_id}")
@@ -801,6 +815,7 @@ async def test_rename_keeps_description(tg: BotUnderTest):
     await tg.send("/new")
     await tg.send("Йога")
     await tg.send("щоранку 20 хвилин")
+    await tg.tap("sched:done:0")
 
     habit_id = (await tg.api.list_habits(USER.id))[0]["id"]
 
@@ -827,6 +842,7 @@ async def test_clear_description_with_marker(tg: BotUnderTest):
     await tg.send("/new")
     await tg.send("Йога")
     await tg.send("зайвий опис")
+    await tg.tap("sched:done:0")
 
     habit_id = (await tg.api.list_habits(USER.id))[0]["id"]
 
@@ -943,3 +959,113 @@ async def test_card_of_deleted_habit_explains_itself(tg: BotUnderTest):
 
     alerts = [t for k, t, *_ in tg.sent if k == "Alert"]
     assert any("вже немає" in a for a in alerts), alerts
+
+
+# ---------- розклад у діалозі створення ----------
+
+
+async def reach_schedule_step(tg: BotUnderTest, name: str = "Спортзал") -> None:
+    await tg.send("/new")
+    await tg.send(name)
+    await tg.tap("menu:skip_description")
+
+
+async def test_schedule_is_chosen_in_place_and_saved(tg: BotUnderTest):
+    """Раніше бот створював ЛИШЕ щоденні звички: create_habit не передавав
+    weekdays, а API мовчки ставив «щодня». Тепер розклад обирається в діалозі."""
+    await reach_schedule_step(tg)
+
+    await tg.tap("sched:workdays:0")
+    kind, text, buttons = tg.sent[-1]
+    # Те саме повідомлення перемальовується, а не шлеться нове.
+    assert kind == "EditMessageText"
+    assert "Зараз: <b>Пн, Вт, Ср, Чт, Пт</b>" in text
+    assert "▫️ Сб" in buttons
+
+    await tg.tap("sched:toggle:2")
+    assert "Зараз: <b>Пн, Вт, Чт, Пт</b>" in tg.sent[-1][1]
+
+    await tg.tap("sched:done:0")
+    habits = await tg.api.list_habits(USER.id)
+    assert habits[0]["weekdays"] == [0, 1, 3, 4]
+
+
+async def test_schedule_needs_at_least_one_day(tg: BotUnderTest):
+    await reach_schedule_step(tg)
+    await tg.tap("sched:workdays:0")
+    for day in range(5):
+        await tg.tap(f"sched:toggle:{day}")
+    assert "Зараз: <b>жодного дня</b>" in tg.sent[-1][1]
+
+    await tg.tap("sched:done:0")
+
+    assert ("Alert", "Обери хоча б один день.", []) in tg.sent
+    assert await tg.api.list_habits(USER.id) == []
+    # Діалог не зламався: можна обрати день і завершити.
+    assert await tg.fsm_state() == "NewHabit:weekdays"
+
+
+async def test_forged_day_in_button_is_ignored(tg: BotUnderTest):
+    """Дані кнопки приходять від клієнта; день 99 не має дожити до API."""
+    await reach_schedule_step(tg)
+
+    await tg.tap("sched:toggle:99")
+    await tg.tap("sched:done:0")
+
+    habits = await tg.api.list_habits(USER.id)
+    assert habits[0]["weekdays"] == [0, 1, 2, 3, 4, 5, 6]
+
+
+async def test_text_on_schedule_step_gets_explanation(tg: BotUnderTest):
+    await reach_schedule_step(tg)
+
+    await tg.send("понеділок і середа")
+
+    assert "кнопками" in tg.texts[0]
+    assert await tg.fsm_state() == "NewHabit:weekdays"
+
+
+async def test_cancel_on_schedule_step_creates_nothing(tg: BotUnderTest):
+    await reach_schedule_step(tg)
+    await tg.send("/cancel")
+
+    assert "Скасовано" in tg.texts[0]
+    assert await tg.api.list_habits(USER.id) == []
+
+
+async def test_double_click_skip_shows_one_schedule_prompt(tg: BotUnderTest):
+    """Подвійний «Пропустити» не має надіслати питання про розклад двічі."""
+    await tg.send("/new")
+    await tg.send("Читати")
+
+    tg.bot.session.sent.clear()
+    u1 = tg.make_tap("menu:skip_description")
+    u2 = tg.make_tap("menu:skip_description")
+    await asyncio.gather(tg.feed(u1), tg.feed(u2))
+
+    prompts = [t for k, t, *_ in tg.sent if k == "SendMessage" and "Коли виконувати" in t]
+    assert len(prompts) == 1
+
+
+async def test_habit_card_shows_schedule(tg: BotUnderTest):
+    response = await tg.api._request("POST", "/habits", USER.id,
+                                     json={"name": "Спортзал", "weekdays": [0, 2, 4]})
+    assert response.status_code == 201, response.text
+
+    await tg.tap(f"habit:open:{response.json()['id']}")
+
+    assert any("📅 Розклад: Пн, Ср, Пт" in text for text in tg.texts)
+
+
+def test_schedule_label_matches_web_wording():
+    from bot.schedule import schedule_label
+
+    assert schedule_label([0, 1, 2, 3, 4, 5, 6]) == "Щодня"
+    assert schedule_label([4, 0, 2]) == "Пн, Ср, Пт"
+
+
+def test_toggle_day_keeps_list_sorted():
+    from bot.schedule import toggle_day
+
+    assert toggle_day([0, 4], 2) == [0, 2, 4]
+    assert toggle_day([0, 2, 4], 2) == [0, 4]

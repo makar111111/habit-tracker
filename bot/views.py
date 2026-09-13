@@ -17,6 +17,7 @@ from bot.keyboards import (
     manage_keyboard,
 )
 from bot.plural import plural
+from bot.schedule import EVERY_DAY, schedule_label
 
 EMPTY_TEXT = (
     "У тебе ще немає жодної звички.\n\n"
@@ -94,6 +95,7 @@ def _card_text(habit: dict) -> str:
     longest = stats.get("longest_streak") or 0
 
     lines.append("")
+    lines.append(f"📅 Розклад: {schedule_label(habit.get('weekdays') or EVERY_DAY)}")
     if stats.get("done_today"):
         lines.append("Сьогодні: ✅ відмічено")
     elif not habit.get("due_today", True):

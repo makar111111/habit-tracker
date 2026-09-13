@@ -233,15 +233,22 @@ class HabitsAPI:
         } for habit in habits]
 
     async def create_habit(
-        self, telegram_id: int, name: str, description: str = ""
+        self,
+        telegram_id: int,
+        name: str,
+        description: str = "",
+        *,
+        weekdays: list[int] | None = None,
     ) -> dict:
-        """Створити звичку. Власника API візьме з автентифікації."""
-        response = await self._request(
-            "POST",
-            "/habits",
-            telegram_id,
-            json={"name": name, "description": description},
-        )
+        """Створити звичку. Власника API візьме з автентифікації.
+
+        Без weekdays API ставить «щодня» — саме так бот раніше й створював
+        УСІ звички, мовчки: поле необов'язкове, тож запит проходив успішно.
+        """
+        body: dict = {"name": name, "description": description}
+        if weekdays is not None:
+            body["weekdays"] = weekdays
+        response = await self._request("POST", "/habits", telegram_id, json=body)
         return self._ok(response).json()
 
     async def update_habit(
