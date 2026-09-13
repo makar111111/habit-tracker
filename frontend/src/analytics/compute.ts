@@ -22,10 +22,15 @@ export interface DayPoint {
   date: string;
   /** Коротка підпис для осі: `12 вер`. */
   label: string;
-  /** Скільки звичок відмічено того дня. */
+  /** Скільки запланованих звичок відмічено того дня. */
   done: number;
-  /** Скільки звичок узагалі існувало — для відсотка. */
+  /** Скільки звичок було заплановано того дня. */
   total: number;
+  /**
+   * Частка виконаного від запланованого. `null`, коли нічого не заплановано:
+   * нуль означав би «провалив», а там вихідний — на графіку це порожнє місце.
+   */
+  percent: number | null;
 }
 
 export interface HabitPoint {
@@ -66,11 +71,14 @@ export function lastDays(today: Date, days: number): Date[] {
 export function dailySeries(habits: HabitDays[], today: Date, days: number): DayPoint[] {
   return lastDays(today, days).map((date) => {
     const iso = toISO(date);
+    const done = habits.filter((habit) => isScheduledOn(habit, iso) && habit.days.has(iso)).length;
+    const total = habits.filter((habit) => isScheduledOn(habit, iso)).length;
     return {
       date: iso,
       label: `${date.getDate()} ${MONTHS_SHORT[date.getMonth()]}`,
-      done: habits.filter((habit) => isScheduledOn(habit, iso) && habit.days.has(iso)).length,
-      total: habits.filter((habit) => isScheduledOn(habit, iso)).length,
+      done,
+      total,
+      percent: total === 0 ? null : Math.round((done / total) * 100),
     };
   });
 }

@@ -50,6 +50,21 @@ describe("dailySeries", () => {
     expect(dailySeries([], TODAY, 3)).toHaveLength(3);
     expect(dailySeries([], TODAY, 3)[0].done).toBe(0);
   });
+
+  it("рахує відсоток від запланованого саме на цей день", () => {
+    // 1 з 2 і 2 з 4 — однаково 50%. Висота за кількістю показала б другий
+    // день удвічі кращим, хоча людина трималася однаково.
+    const habits = [habit("Йога", back(0, 1)), habit("Читання", back(1)),
+      habit("Біг", []), habit("Англійська", [])];
+    const yesterday = dailySeries(habits, TODAY, 2)[0];
+    expect(yesterday).toMatchObject({ done: 2, total: 4, percent: 50 });
+  });
+
+  it("не малює нуль там, де нічого не заплановано", () => {
+    const planned = { ...habit("Спортзал", []), start_date: "2026-09-07", weekdays: [0] };
+    // 12 вересня 2026 — субота, звичка лише по понеділках.
+    expect(dailySeries([planned], TODAY, 1)[0].percent).toBeNull();
+  });
 });
 
 describe("habitSeries", () => {

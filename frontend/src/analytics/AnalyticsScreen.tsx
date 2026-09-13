@@ -1,10 +1,9 @@
 import { useState } from "react";
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -33,6 +32,15 @@ const PERIODS = [
   { days: 30, label: "30 днів" },
   { days: 90, label: "90 днів" },
 ];
+
+/**
+ * Проміжок між стовпчиками «Динаміки» — відсотком, а не пікселями.
+ * Recharts віднімає його з обох боків смуги дня. На телефоні за 90 днів
+ * смуга ≈ 2,8 px, і фіксовані 2 px давали стовпчик шириною −1,17 px:
+ * графік виглядав порожнім, ніби даних немає. Відсоток масштабується разом
+ * зі смугою. Закріплено в rechartsContract.test.tsx.
+ */
+export const DAILY_BAR_GAP = "15%";
 
 /**
  * Екран аналітики.
@@ -139,23 +147,19 @@ function AnalyticsCharts({ items, today }: Props) {
 
       <section className="chart-card">
         <h2>Динаміка</h2>
-        <p className="chart-note">Заплановані виконання за день. Архів враховано до дати архівування включно.</p>
+        <p className="chart-note">
+          Частка виконаних запланованих звичок за кожен день. Сірий штрих — нічого не виконано,
+          порожнє місце — нічого не заплановано. Архів враховано до дати архівування включно.
+        </p>
 
+        {/*
+          Стовпчики, а не лінія: значення за день окремі, між днями нічого не
+          відбувається. Згладжена крива між «50%» і «100%» малювала б 75%, яких
+          не було. А висота — у відсотках від запланованого саме на цей день:
+          за кількістю «2 з 2» у вихідний виглядало б гірше, ніж «3 з 5».
+        */}
         <ResponsiveContainer width="100%" height={220}>
-          <AreaChart data={daily} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-            <defs>
-              {/*
-                Заливка градієнтом від кольору лінії до прозорого.
-                Суцільна площа такої висоти перетягувала б увагу на себе;
-                згасання лишає акцент на верхній межі — саме вона й несе
-                дані, площа під нею лише підказує напрямок.
-              */}
-              <linearGradient id="daily-fill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={colors.accent} stopOpacity={0.35} />
-                <stop offset="100%" stopColor={colors.accent} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-
+          <BarChart data={daily} margin={{ top: 4, right: 8, bottom: 0, left: 0 }} barCategoryGap={DAILY_BAR_GAP}>
             <CartesianGrid stroke={colors.border} vertical={false} />
             <XAxis
               dataKey="label"
@@ -165,29 +169,33 @@ function AnalyticsCharts({ items, today }: Props) {
               interval={Math.max(0, Math.floor(daily.length / 8))}
               tickLine={false}
             />
-            <YAxis allowDecimals={false} {...axis} tickLine={false} width={40} />
-            <Tooltip
-              cursor={{ stroke: colors.muted, strokeWidth: 1 }}
-              content={<DayTooltip />}
-            />
-            <Area
-              type="monotone"
-              dataKey="done"
-              stroke={colors.accent}
-              strokeWidth={2}
-              fill="url(#daily-fill)"
-              // Точка на кожен день перетворила б лінію на намисто.
-              // Лишаємо їх лише під курсором.
-              dot={false}
-              activeDot={{ r: 4, strokeWidth: 2, stroke: colors.card }}
-            />
-          </AreaChart>
+            <YAxis domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} unit="%" {...axis} tickLine={false} width={48} />
+            {/* Підсвічується вся смуга дня, а не лише стовпчик: на 90 днях він
+                тонкий, і влучити курсором саме в нього було б важко. */}
+            <Tooltip cursor={{ fill: colors.border, fillOpacity: 0.35 }} content={<DayTooltip />} />
+            {/* На 90 днях стовпчик вужчий за 4 px — таке заокруглення зробило б
+                з нього краплю, тож радіус зменшується разом зі шириною.
+
+                minPointSize робить нуль видимим штрихом. Без нього день із 0% і
+                вихідний виглядали б однаковою порожнечею — а це протилежні речі:
+                «не впорався» і «нічого не треба було робити». null (вихідний)
+                Recharts не малює зовсім — див. rechartsContract.test.tsx. */}
+            <Bar dataKey="percent" radius={days > 45 ? [1, 1, 0, 0] : [4, 4, 0, 0]} minPointSize={3}>
+              {daily.map((point) => (
+                <Cell key={point.date} fill={point.percent === 0 ? colors.muted : colors.accent} />
+              ))}
+            </Bar>
+          </BarChart>
         </ResponsiveContainer>
 
         <DataTable
           caption="Динаміка по днях"
-          head={["День", "Відмічено"]}
-          rows={daily.map((point) => [point.label, String(point.done)])}
+          head={["День", "Виконано", "Відсоток"]}
+          rows={daily.map((point) => [
+            point.label,
+            point.total ? `${point.done} з ${point.total}` : "—",
+            point.percent === null ? "—" : `${point.percent}%`,
+          ])}
         />
       </section>
 
@@ -283,13 +291,13 @@ function firstPayload<T>(props: TooltipProps): T | null {
 }
 
 function DayTooltip(props: TooltipProps) {
-  const point = firstPayload<{ label: string; done: number; total: number }>(props);
+  const point = firstPayload<{ label: string; done: number; total: number; percent: number | null }>(props);
   if (!point) return null;
 
   return (
     <div className="chart-tooltip">
       <strong>{point.label}</strong>
-      {point.total ? `${point.done} з ${point.total}` : "Немає запланованих днів"}
+      {point.percent === null ? "Нічого не заплановано" : `${point.percent}% — ${point.done} з ${point.total}`}
     </div>
   );
 }
