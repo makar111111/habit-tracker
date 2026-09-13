@@ -26,13 +26,13 @@ const item: HabitWithStats = {
   },
 };
 
-function renderRow() {
+function renderRow(row: HabitWithStats = item) {
   return render(
     // Клієнт створюється тією ж функцією, що й у застосунку — разом
     // із обробником помилок мутацій. Саме він і перевіряється нижче.
     <QueryClientProvider client={createQueryClient()}>
       <ErrorBanner />
-      <HabitRow item={item} today={TODAY} />
+      <HabitRow item={row} today={TODAY} />
     </QueryClientProvider>,
   );
 }
@@ -55,7 +55,7 @@ describe("Календар просить лише потрібний періо
     // понад тисяча записів, щоб намалювати 84 квадратики.
     renderRow();
 
-    await userEvent.click(screen.getByLabelText("Показати календар"));
+    await userEvent.click(screen.getByLabelText("Показати історію та дії"));
 
     await waitFor(() => expect(client.listCheckins).toHaveBeenCalled());
 
@@ -74,7 +74,7 @@ it("повторне натискання та календар блокують
   let finish!: (value: boolean) => void;
   vi.spyOn(client, "checkIn").mockReturnValue(new Promise((resolve) => { finish = resolve; }));
   renderRow();
-  await userEvent.click(screen.getByLabelText("Показати календар"));
+  await userEvent.click(screen.getByLabelText("Показати історію та дії"));
   await screen.findByRole("group", { name: "Відмітки за датами" });
   const button = screen.getByLabelText("Йога: не зроблено сьогодні");
   await userEvent.click(button);
@@ -123,5 +123,36 @@ describe("Помилка дії видима", () => {
 
     await waitFor(() => expect(client.checkIn).toHaveBeenCalled());
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("Картка на телефоні не розростається", () => {
+  it("рідкісні дії сховані, доки картку не розгорнули", async () => {
+    // Раніше «Перейменувати» й «В архів» стояли в рядку картки й на вузькому
+    // екрані переносилися на окремий рядок — кожна картка ставала вдвічі вищою.
+    renderRow();
+    expect(screen.queryByRole("button", { name: "Перейменувати «Йога»" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Архівувати «Йога»" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByLabelText("Показати історію та дії"));
+
+    expect(screen.getByRole("button", { name: "Перейменувати «Йога»" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Архівувати «Йога»" })).toBeInTheDocument();
+  });
+
+  it("в архіві «Відновити» лишається в рядку: там це головна дія", () => {
+    renderRow({ ...item, habit: { ...item.habit, archived_at: "2026-09-10" } });
+    expect(screen.getByRole("button", { name: "Відновити «Йога»" })).toBeInTheDocument();
+  });
+
+  it("не показує вогник, коли серії немає", () => {
+    renderRow({ ...item, stats: { ...item.stats, current_streak: 0 } });
+    expect(screen.queryByText(/🔥/)).not.toBeInTheDocument();
+  });
+
+  it("показує дати по-людськи, а не в ISO", () => {
+    renderRow({ ...item, habit: { ...item.habit, start_date: "2025-11-03" } });
+    expect(screen.getByText("від 3 лис 2025")).toBeInTheDocument();
+    expect(screen.queryByText(/2025-11-03/)).not.toBeInTheDocument();
   });
 });

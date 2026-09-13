@@ -86,3 +86,10 @@ export function daysBetween(a: Date, b: Date): number {
 export function formatShort(date: Date): string {
   return `${date.getDate()} ${MONTH_NAMES[date.getMonth()]}`;
 }
+
+/** «16 кві» у поточному році, «16 кві 2025» — в іншому: без року минулорічна дата виглядала б як нинішня. */
+export function formatDay(iso: string, today: Date): string {
+  const date = fromISO(iso);
+  const short = formatShort(date);
+  return date.getFullYear() === today.getFullYear() ? short : `${short} ${date.getFullYear()}`;
+}

@@ -17,10 +17,10 @@ import { formatShort, fromISO } from "./lib/dates";
 // Графіки завантажуються лише після відкриття аналітики.
 const AnalyticsScreen = lazy(() => import("./analytics/AnalyticsScreen").then((module) => ({ default: module.AnalyticsScreen })));
 const TABS = [
-  { value: "today" as const, label: "Сьогодні" },
-  { value: "analytics" as const, label: "Аналітика" },
-  { value: "archive" as const, label: "Архів" },
-  { value: "settings" as const, label: "Налаштування" },
+  { value: "today" as const, label: "Сьогодні", icon: "✅" },
+  { value: "analytics" as const, label: "Аналітика", icon: "📊" },
+  { value: "archive" as const, label: "Архів", icon: "🗂️" },
+  { value: "settings" as const, label: "Налаштування", icon: "⚙️" },
 ];
 type Tab = typeof TABS[number]["value"];
 

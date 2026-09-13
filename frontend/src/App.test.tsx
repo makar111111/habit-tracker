@@ -218,6 +218,9 @@ describe("Розклад і профіль", () => {
   it("створює звичку з датою початку та вибраними днями", async () => {
     openApp();
     await screen.findByText("Йога");
+    // Коли звички вже є, форма згорнута в кнопку й займає один рядок.
+    expect(screen.queryByRole("textbox", { name: "Назва звички" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Нова звичка" }));
     await userEvent.type(screen.getByRole("textbox", { name: "Назва звички" }), "  Біг  ");
     const date = screen.getByLabelText("Дата початку");
     expect(date).toHaveValue("2026-09-12");
@@ -226,6 +229,10 @@ describe("Розклад і профіль", () => {
     await userEvent.click(screen.getByRole("button", { name: "Додати" }));
     await waitFor(() => expect(calls.find((call) => call.path === "/habits" && call.method === "POST")?.body).toMatchObject({ name: "Біг", start_date: "2026-09-12", weekdays: [0] }));
     expect(await screen.findByText("Біг")).toBeInTheDocument();
+    // Після успіху форма згортається, а фокус лишається на кнопці, а не губиться.
+    const toggle = screen.getByRole("button", { name: "Нова звичка" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveFocus();
   });
 
   it("зберігає налаштування нагадувань і пропонує експорт", async () => {
@@ -278,6 +285,8 @@ describe("Історія, архів та аналітика", () => {
 
   it("архівує і відновлює звичку разом з її історією", async () => {
     openApp();
+    // Архівування — рідкісна дія, тому живе в розгорнутій картці.
+    await userEvent.click(await screen.findByLabelText("Показати історію та дії"));
     await userEvent.click(await screen.findByRole("button", { name: "Архівувати «Йога»" }));
     await waitFor(() => expect(screen.queryByText("Йога")).not.toBeInTheDocument());
     await userEvent.click(screen.getByRole("tab", { name: "Архів" }));
@@ -291,7 +300,7 @@ describe("Історія, архів та аналітика", () => {
   it("помилка календаря має повторення, а після нього можна додати й зняти минулий день", async () => {
     failPath = "/habits/1/checkins";
     openApp();
-    await userEvent.click(await screen.findByLabelText("Показати календар"));
+    await userEvent.click(await screen.findByLabelText("Показати історію та дії"));
     expect(await screen.findByRole("alert")).toHaveTextContent("Тимчасова помилка");
     expect(screen.queryByRole("group", { name: "Відмітки за датами" })).not.toBeInTheDocument();
     failPath = null;

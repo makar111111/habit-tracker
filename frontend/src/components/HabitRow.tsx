@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { useArchiveHabit, useDeleteHabit, useHabitPending, useRenameHabit, useToggleCheckin } from "../api/hooks";
 import type { HabitWithStats } from "../api/types";
-import { pluralDays, toISO } from "../lib/dates";
+import { formatDay, pluralDays, toISO } from "../lib/dates";
 import { pluralCompletions, scheduleLabel } from "../lib/schedule";
 import { HabitHistory } from "./HabitHistory";
 
@@ -21,6 +21,15 @@ export function HabitRow({ item, today }: Props) {
   const archived = Boolean(habit.archived_at);
   const day = toISO(today);
   const seriesUnit = habit.weekdays.length === 7 ? pluralDays(stats.current_streak) : pluralCompletions(stats.current_streak);
+
+  // Рідкісні дії живуть у розгорнутій картці: інакше на телефоні вони
+  // переносилися на окремий рядок і кожна картка ставала вдвічі вищою.
+  // Виняток — «Відновити» в архіві: там це єдина дія, заради якої заходять.
+  const archiveButton = <button type="button" className="ghost-button" disabled={pending}
+    onClick={() => archive.mutate({ habitId: habit.id, archived: !archived })}
+    aria-label={`${archived ? "Відновити" : "Архівувати"} «${habit.name}»`}>
+    {archived ? "Відновити" : "В архів"}
+  </button>;
 
   function submitRename(event: React.FormEvent) {
     event.preventDefault();
@@ -43,35 +52,32 @@ export function HabitRow({ item, today }: Props) {
           <button type="button" className="ghost-button" disabled={pending} onClick={() => setRenaming(false)}>Скасувати</button>
         </form> : <div className="habit-name" title={habit.description || undefined}>{habit.name}</div>}
         <div className="habit-meta">
-          <span title={`Серія: ${stats.current_streak} ${seriesUnit}`}>🔥 {stats.current_streak} {seriesUnit}</span>
+          {/* Вогник при нулі суперечив би сам собі. */}
+          {stats.current_streak > 0 && <span title={`Серія: ${stats.current_streak} ${seriesUnit}`}>🔥 {stats.current_streak} {seriesUnit}</span>}
           <span>усього {stats.total} {pluralDays(stats.total)}</span>
           {stats.longest_streak > stats.current_streak && <span>рекорд {stats.longest_streak}</span>}
         </div>
         <div className="habit-meta"><span>{scheduleLabel(habit)}</span>
-          {habit.start_date && <span>від {habit.start_date}</span>}
-          {habit.archived_at && <span>архівовано {habit.archived_at}</span>}
+          {habit.start_date && <span>від {formatDay(habit.start_date, today)}</span>}
+          {habit.archived_at && <span>архівовано {formatDay(habit.archived_at, today)}</span>}
         </div>
       </div>
       <div className="habit-actions">
-        <button type="button" className="ghost-button" onClick={() => setOpen((value) => !value)} aria-expanded={open}
-          aria-label={open ? "Сховати календар" : "Показати календар"} title="Календар">
-          <span aria-hidden="true">{open ? "▾" : "▸"}</span>
-        </button>
-        <button type="button" className="ghost-button" disabled={pending} title="Перейменувати"
-          onClick={() => { setDraft(habit.name); setRenaming(true); }} aria-label={`Перейменувати «${habit.name}»`}>
-          <span aria-hidden="true">✎</span>
-        </button>
-        <button type="button" className="ghost-button" disabled={pending} title={archived ? "Відновити" : "Архівувати"}
-          onClick={() => archive.mutate({ habitId: habit.id, archived: !archived })}
-          aria-label={`${archived ? "Відновити" : "Архівувати"} «${habit.name}»`}>
-          {archived ? "Відновити" : "В архів"}
+        {archived && archiveButton}
+        <button type="button" className="ghost-button expand-button" onClick={() => setOpen((value) => !value)} aria-expanded={open}
+          aria-label={open ? "Сховати історію та дії" : "Показати історію та дії"} title="Історія та дії">
+          <span aria-hidden="true">{open ? "▴" : "▾"}</span>
         </button>
       </div>
     </div>
     {open && <>
       {habit.description && <p className="habit-description">{habit.description}</p>}
       <HabitHistory habit={habit} today={today} pending={pending} />
-      <div className="history-actions"><button type="button" className="ghost-button danger" disabled={pending}
+      <div className="history-actions">
+        <button type="button" className="ghost-button" disabled={pending}
+          onClick={() => { setDraft(habit.name); setRenaming(true); }} aria-label={`Перейменувати «${habit.name}»`}>Перейменувати</button>
+        {!archived && archiveButton}
+        <button type="button" className="ghost-button danger" disabled={pending}
         onClick={() => {
           if (window.confirm(`Видалити «${habit.name}» разом з усіма відмітками? Цю дію неможливо скасувати.`)) remove.mutate(habit.id);
         }} aria-label={`Видалити «${habit.name}» назавжди`}>Видалити назавжди</button></div>

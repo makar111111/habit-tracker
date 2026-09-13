@@ -3,6 +3,8 @@ import { useRef } from "react";
 export interface TabItem<T extends string> {
   value: T;
   label: string;
+  /** Показується лише в нижній панелі на телефоні; для диктора прихована, ім'я вкладки — label. */
+  icon?: string;
 }
 
 interface Props<T extends string> {
@@ -91,7 +93,8 @@ export function Tabs<T extends string>({ items, value, onChange, label }: Props<
             onClick={() => onChange(item.value)}
             onKeyDown={onKeyDown}
           >
-            {item.label}
+            {item.icon && <span className="tab-icon" aria-hidden="true">{item.icon}</span>}
+            <span>{item.label}</span>
           </button>
         );
       })}

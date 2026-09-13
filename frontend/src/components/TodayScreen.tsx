@@ -1,8 +1,8 @@
 import { useHabitsWithStats } from "../api/hooks";
 import { toISO } from "../lib/dates";
 import { isScheduledOn } from "../lib/schedule";
-import { AddHabitForm } from "./AddHabitForm";
 import { HabitList } from "./HabitList";
+import { NewHabit } from "./NewHabit";
 import { ProgressPanel } from "./ProgressPanel";
 import { QueryError } from "./QueryError";
 
@@ -13,7 +13,7 @@ export function TodayScreen({ today }: { today: Date }) {
   const other = query.items.filter((item) => !isScheduledOn(item.habit, day));
   return <>
     {!query.error && !query.isLoading && <ProgressPanel items={planned} />}
-    <AddHabitForm today={today} />
+    {!query.isLoading && !query.error && <NewHabit today={today} empty={query.items.length === 0} />}
     {query.error ? <QueryError error={query.error} retry={query.refetch} /> : <>
       {query.items.length > 0 && <h2 className="section-title">За розкладом сьогодні</h2>}
       <HabitList items={planned} isLoading={query.isLoading} today={today}

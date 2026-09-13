@@ -97,3 +97,11 @@ describe("Tabs — клавіатура", () => {
     expect(onChange).toHaveBeenCalledWith("analytics");
   });
 });
+
+describe("Tabs — іконки нижньої панелі", () => {
+  it("іконка не змінює ім'я вкладки для диктора", () => {
+    render(<Tabs items={[{ value: "today", label: "Сьогодні", icon: "✅" }]} value="today" onChange={() => {}} label="Розділи" />);
+    // Якби емодзі потрапило в ім'я, диктор читав би «зелена галочка Сьогодні».
+    expect(screen.getByRole("tab", { name: "Сьогодні" })).toBeInTheDocument();
+  });
+});

@@ -7,6 +7,9 @@
 body {
   margin: 0;
   padding: 1.5rem 1rem 4rem;
+  /* viewport-fit=cover пускає сторінку під виріз камери; відступ не дає тексту туди залізти. */
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
   background: var(--bg);
   color: var(--text);
   font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -213,6 +216,12 @@ body {
   min-width: 0;
 }
 
+.add-form-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 .add-form input::placeholder {
   color: var(--muted);
 }
@@ -317,7 +326,9 @@ body {
   color: var(--muted);
   font-size: 0.85rem;
   display: flex;
-  gap: 0.6rem;
+  /* Відступ лише між колонками: перенесений на вузькому екрані «рекорд»
+     інакше відривався від свого рядка на цілу висоту проміжку. */
+  gap: 0 0.6rem;
   flex-wrap: wrap;
 }
 
@@ -762,8 +773,41 @@ button:disabled {
 }
 
 .history-actions {
-  text-align: right;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
   margin-top: 0.5rem;
+}
+
+/* ---------- створення звички ---------- */
+
+.new-habit-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: 100%;
+  min-height: 44px;
+  margin-bottom: 1rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  transition: color var(--speed), border-color var(--speed), background var(--speed);
+}
+
+.new-habit-toggle:hover,
+.new-habit-toggle[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--card);
+}
+
+.tab-icon {
+  display: none;
 }
 
 .query-error {
@@ -829,10 +873,63 @@ button:disabled {
 }
 
 @media (max-width: 520px) {
-  .habit-row { flex-wrap: wrap; }
-  .habit-main { flex-basis: calc(100% - 60px); }
-  .habit-actions { margin-left: auto; }
   .calendar-navigation span { order: -1; flex-basis: 100%; text-align: center; }
+
+  /* Назва й опис — на всю ширину: вдвох в один рядок опис обрізався до «необов'язков». */
+  .add-form-main input:not([type="checkbox"]) { flex-basis: 100%; }
+
+  /* Кнопка розгортання — ціль для пальця, а не для курсора. */
+  .expand-button { min-width: 44px; min-height: 44px; }
+
+  /*
+    Вкладки — нижньою панеллю, у зоні великого пальця. Селектор саме по
+    role="tablist": клас .tabs має й перемикач періоду в аналітиці (role="group"),
+    і приліпити його до низу екрана було б помилкою. ARIA-ролі не змінюються —
+    змінюється лише вигляд.
+  */
+  .tabs[role="tablist"] {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    gap: 0;
+    margin: 0;
+    padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    overflow: visible;
+    border-bottom: 0;
+    border-top: 1px solid var(--border);
+    background: var(--card);
+    box-shadow: var(--shadow-md);
+  }
+
+  .tabs[role="tablist"] .tab {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
+    padding: 0.45rem 0.2rem 0.5rem;
+    border-bottom: 0;
+    border-top: 2px solid transparent;
+    font-size: 0.72rem;
+  }
+
+  .tabs[role="tablist"] .tab[aria-selected="true"] {
+    border-top-color: var(--accent);
+  }
+
+  .tab-icon {
+    display: block;
+    font-size: 1.2rem;
+    line-height: 1;
+  }
+
+  /* Місце під нижню панель, щоб остання картка не ховалася за нею. */
+  .shell {
+    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom));
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

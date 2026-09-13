@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   addDays,
   daysBetween,
+  formatDay,
   fromISO,
   gridStart,
   pluralDays,
@@ -111,5 +112,17 @@ describe("daysBetween", () => {
     const morning = new Date(2026, 8, 1, 8, 0);
     const night = new Date(2026, 8, 2, 23, 59);
     expect(daysBetween(morning, night)).toBe(1);
+  });
+});
+
+describe("formatDay", () => {
+  const today = new Date(2026, 8, 13);
+
+  it("у поточному році показує лише день і місяць", () => {
+    expect(formatDay("2026-04-16", today)).toBe("16 кві");
+  });
+
+  it("в іншому році додає рік", () => {
+    expect(formatDay("2025-12-31", today)).toBe("31 гру 2025");
   });
 });
