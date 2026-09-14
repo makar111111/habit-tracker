@@ -12,9 +12,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           # Та сама версія, що й у розробці та в Dockerfile. Розбіжність
           # тут означала б, що CI перевіряє не той Python, на якому
@@ -52,9 +52,9 @@ jobs:
         working-directory: frontend
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -90,7 +90,7 @@ jobs:
       TZ: Europe/Kyiv
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Зібрати й дочекатися готовності API
         run: docker compose up --build --detach --wait --wait-timeout 120 api
