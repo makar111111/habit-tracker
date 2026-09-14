@@ -45,6 +45,11 @@ _spec.loader.exec_module(guard)
         "python migrate.py --env=prod",
         "python migrate.py --env production",
         "git status && git push --force",
+        "claude -p 'fix it' --dangerously-skip-permissions",
+        "claude -p x --permission-mode bypassPermissions",
+        "claude --bare -p x",
+        "git status && claude -p x --dangerously-skip-permissions",
+        "C:\\Users\\me\\.local\\bin\\claude.exe --bare -p x",
     ],
 )
 def test_blocks_dangerous_commands(command):
@@ -73,6 +78,9 @@ def test_blocks_dangerous_commands(command):
         "docker compose logs -f bot",
         "git status; rm -f stale.txt",
         "python main.py --env=dev",
+        "git commit -m 'хук блокує вкладений claude з --bare'",
+        "python run_headless.py 'claude --bare'",
+        "claude -p x --permission-mode dontAsk",
     ],
 )
 def test_allows_safe_commands(command):

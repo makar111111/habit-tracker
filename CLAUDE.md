@@ -69,6 +69,24 @@ PowerShell) блокує небезпечні команди ще до запу�
 питає git про поточну: `git push` на `main` теж заблоковано. Для змін,
 які треба запушити, створюй окрему гілку; у `main` пушить людина.
 
+**Автономний запуск (`claude -p`) — лише через `run_headless.py`.** У
+headless-режимі ніхто не натисне «ні», тож межі задаються до старту:
+профіль `read` (Read/Glob/Grep) або `edit` (+ правки, pytest, ruff,
+`git status/diff/log`), `--permission-mode dontAsk` (усе поза списком
+відхиляється), `--max-turns` (типово 15, стеля 50) і `--max-budget-usd`
+(типово 1). `git push`/`commit` і мережа заборонені в усіх профілях.
+`--bare` і обхід дозволів не використовуються: вони вимикають хуки, тому
+`guard_command.py` блокує такий вкладений запуск. Окремо `permissions.deny`
+у `settings.json` не дає інструментам Read/Edit торкатися `.env` і
+`habits.db*` — хуки перевіряють лише shell-команди, а deny діє в будь-якому
+режимі.
+
+```bash
+python run_headless.py "знайди TODO у frontend/src"
+python run_headless.py --profile edit --max-turns 25 "виправ test_stats.py"
+python run_headless.py --dry-run "..."   # показати команду, не запускаючи
+```
+
 ## Вхід у вебверсію
 
 Вебсторінка **вимагає входу**. Запит без автентифікації дістає `401` —

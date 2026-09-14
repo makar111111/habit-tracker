@@ -1,4 +1,7 @@
 {
+  "permissions": {
+    "deny": ["Read(/.env)", "Edit(/.env)", "Read(/habits.db*)", "Edit(/habits.db*)"]
+  },
   "hooks": {
     "PreToolUse": [
       {
