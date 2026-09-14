@@ -50,7 +50,9 @@ def backup_database(source: str | Path, destination: str | Path) -> Path:
     for suffix in ("-wal", "-shm", "-journal"):
         sidecar = destination_path.with_name(destination_path.name + suffix)
         if sidecar.exists() or sidecar.is_symlink():
-            raise FileExistsError(f"Destination SQLite sidecar already exists: {sidecar}")
+            raise FileExistsError(
+                f"Destination SQLite sidecar already exists: {sidecar}"
+            )
 
     with closing(_read_only(source_path)) as source_connection:
         _check_integrity(source_connection)
@@ -67,7 +69,9 @@ def backup_database(source: str | Path, destination: str | Path) -> Path:
 
                 def check_timeout(status: int, remaining: int, total: int) -> None:
                     if time.monotonic() > deadline:
-                        raise TimeoutError("SQLite backup did not finish within 30 seconds")
+                        raise TimeoutError(
+                            "SQLite backup did not finish within 30 seconds"
+                        )
 
                 source_connection.backup(
                     target_connection, pages=256, progress=check_timeout, sleep=0.05

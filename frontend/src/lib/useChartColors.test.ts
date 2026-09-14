@@ -37,8 +37,12 @@ describe("useChartColors", () => {
     const { result } = renderHook(() => useChartColors());
 
     expect(result.current).toEqual({
-      accent: "#111111", success: "#222222", muted: "#333333",
-      border: "#444444", text: "#555555", card: "#666666",
+      accent: "#111111",
+      success: "#222222",
+      muted: "#333333",
+      border: "#444444",
+      text: "#555555",
+      card: "#666666",
     });
   });
 

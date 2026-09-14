@@ -205,9 +205,12 @@ def test_expired_code_is_rejected(web):
     session.add(login)
     session.commit()
 
-    assert client.post(
-        "/auth/confirm", json={"token": token}, headers=bot_headers(OLENA)
-    ).status_code == 404
+    assert (
+        client.post(
+            "/auth/confirm", json={"token": token}, headers=bot_headers(OLENA)
+        ).status_code
+        == 404
+    )
     assert client.get(f"/auth/login-code/{token}").status_code == 410
 
 
@@ -215,9 +218,12 @@ def test_unknown_code_is_rejected(web):
     client, _ = web
 
     assert client.get("/auth/login-code/вигаданий").status_code == 404
-    assert client.post(
-        "/auth/confirm", json={"token": "вигаданий"}, headers=bot_headers(OLENA)
-    ).status_code == 404
+    assert (
+        client.post(
+            "/auth/confirm", json={"token": "вигаданий"}, headers=bot_headers(OLENA)
+        ).status_code
+        == 404
+    )
 
 
 def test_confirm_requires_bot_secret(web):

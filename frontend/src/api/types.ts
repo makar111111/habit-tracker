@@ -65,7 +65,9 @@ export interface CreateHabitInput {
   weekdays: number[];
 }
 
-export type UserChanges = Partial<Pick<User, "name" | "timezone" | "reminder_hour" | "reminders_enabled">>;
+export type UserChanges = Partial<
+  Pick<User, "name" | "timezone" | "reminder_hour" | "reminders_enabled">
+>;
 
 /** Відповідь на `POST /auth/login-code`. */
 export interface LoginCode {

@@ -93,7 +93,11 @@ export function Tabs<T extends string>({ items, value, onChange, label }: Props<
             onClick={() => onChange(item.value)}
             onKeyDown={onKeyDown}
           >
-            {item.icon && <span className="tab-icon" aria-hidden="true">{item.icon}</span>}
+            {item.icon && (
+              <span className="tab-icon" aria-hidden="true">
+                {item.icon}
+              </span>
+            )}
             <span>{item.label}</span>
           </button>
         );

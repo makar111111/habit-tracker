@@ -104,9 +104,7 @@ def _sign(payload: str) -> str:
     ).hexdigest()
 
 
-def get_or_create_user(
-    session: Session, telegram_id: int | None, name: str
-) -> User:
+def get_or_create_user(session: Session, telegram_id: int | None, name: str) -> User:
     """Знайти користувача за telegram_id, а якщо його ще немає — завести."""
     # == None у SQLAlchemy перетворюється на SQL IS NULL, але is_(None)
     # каже те саме прямо й не збиває з пантелику лінтери.
@@ -175,18 +173,21 @@ def get_current_user(
             raise HTTPException(
                 status_code=401,
                 detail="Потрібен вхід. Відкрий сторінку застосунку і "
-                       "увійди через Telegram.",
+                "увійди через Telegram.",
             )
         return get_or_create_user(session, None, LOCAL_USER_NAME)
 
     # Далі — запит нібито від бота, і його треба перевірити.
 
-    if (len(x_telegram_id) > 19 or not x_telegram_id.isascii()
-            or not x_telegram_id.isdecimal()):
-        raise HTTPException(status_code=401, detail='Некоректний Telegram ID')
+    if (
+        len(x_telegram_id) > 19
+        or not x_telegram_id.isascii()
+        or not x_telegram_id.isdecimal()
+    ):
+        raise HTTPException(status_code=401, detail="Некоректний Telegram ID")
     telegram_id = int(x_telegram_id)
     if not 0 < telegram_id <= 2**63 - 1:
-        raise HTTPException(status_code=401, detail='Некоректний Telegram ID')
+        raise HTTPException(status_code=401, detail="Некоректний Telegram ID")
 
     if not BOT_SECRET:
         # Пароль не налаштовано. Мовчки пускати не можна: порівняння
@@ -202,7 +203,9 @@ def get_current_user(
     # й обривається на першій розбіжності. Різниця в часі мікроскопічна,
     # але за нею можна підбирати пароль по одному символу. compare_digest
     # витрачає однаковий час незалежно від того, де саме розбіжність.
-    if x_bot_secret is None or not secrets.compare_digest(x_bot_secret.encode(), BOT_SECRET.encode()):
+    if x_bot_secret is None or not secrets.compare_digest(
+        x_bot_secret.encode(), BOT_SECRET.encode()
+    ):
         raise HTTPException(status_code=401, detail="Невірний секрет бота")
 
     # Ім'я порожнє навмисно: справжнє ім'я приходить окремим запитом
@@ -232,7 +235,9 @@ def require_bot(x_bot_secret: str | None = Header(default=None)) -> None:
             detail="Доступ для бота не налаштовано: у .env немає BOT_SECRET",
         )
 
-    if x_bot_secret is None or not secrets.compare_digest(x_bot_secret.encode(), BOT_SECRET.encode()):
+    if x_bot_secret is None or not secrets.compare_digest(
+        x_bot_secret.encode(), BOT_SECRET.encode()
+    ):
         raise HTTPException(status_code=401, detail="Невірний секрет бота")
 
 

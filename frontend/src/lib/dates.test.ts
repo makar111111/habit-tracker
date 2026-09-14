@@ -1,14 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  addDays,
-  daysBetween,
-  formatDay,
-  fromISO,
-  gridStart,
-  pluralDays,
-  toISO,
-} from "./dates";
+import { addDays, daysBetween, formatDay, fromISO, gridStart, pluralDays, toISO } from "./dates";
 
 describe("toISO", () => {
   it("доповнює місяць і день нулем", () => {

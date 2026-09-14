@@ -27,7 +27,9 @@ export function clearPrivateQueries(client: QueryClient): void {
 export function createQueryClient(): QueryClient {
   const client = new QueryClient({
     queryCache: new QueryCache({
-      onError: (error) => { if (isUnauthorized(error)) endSession(client); },
+      onError: (error) => {
+        if (isUnauthorized(error)) endSession(client);
+      },
     }),
     // Помилки всіх дій показує один ErrorBanner; компоненти не приховують відмови.
     mutationCache: new MutationCache({

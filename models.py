@@ -100,36 +100,39 @@ class UserUpdate(SQLModel):
     reminder_hour: Annotated[StrictInt, PydanticField(ge=0, le=23)] | None = None
     reminders_enabled: bool | None = None
 
-    @field_validator('name', 'timezone', 'reminder_hour', 'reminders_enabled', mode='before')
+    @field_validator(
+        "name", "timezone", "reminder_hour", "reminders_enabled", mode="before"
+    )
     @classmethod
     def reject_null(cls, value):
         if value is None:
-            raise ValueError('Значення не може бути null')
+            raise ValueError("Значення не може бути null")
         return value
 
-    @field_validator('name', mode='before')
+    @field_validator("name", mode="before")
     @classmethod
     def trim_name(cls, value):
         return normalize_name(value)
 
-    @field_validator('timezone')
+    @field_validator("timezone")
     @classmethod
     def valid_timezone(cls, value):
         try:
             ZoneInfo(value)
-        except (ZoneInfoNotFoundError, ValueError, TypeError):
-            raise ValueError('Невідомий часовий пояс') from None
+        except ZoneInfoNotFoundError, ValueError, TypeError:
+            raise ValueError("Невідомий часовий пояс") from None
         return value
 
 
 # ---------- Звички ----------
+
 
 # Спільна основа. Тут поля, які є і в базі, і в тому, що надсилає користувач.
 class HabitBase(SQLModel):
     name: str = Field(min_length=1, max_length=100)
     description: str = ""
 
-    @field_validator('name', mode='before')
+    @field_validator("name", mode="before")
     @classmethod
     def trim_name(cls, value):
         return normalize_name(value)
@@ -143,7 +146,9 @@ class Habit(HabitBase, table=True):
     # на багатокористувацький: кожен запит тепер фільтрується по ньому.
     user_id: int = Field(foreign_key="user.id", index=True)
     start_date: date | None = None
-    weekdays: list[int] = Field(default_factory=daily_weekdays, sa_column=Column(JSON, nullable=False))
+    weekdays: list[int] = Field(
+        default_factory=daily_weekdays, sa_column=Column(JSON, nullable=False)
+    )
     archived_at: date | None = None
 
 
@@ -151,11 +156,11 @@ class HabitCreate(HabitBase):
     start_date: date | None = None
     weekdays: Weekdays = Field(default_factory=daily_weekdays)
 
-    @field_validator('weekdays')
+    @field_validator("weekdays")
     @classmethod
     def valid_weekdays(cls, value):
         if any(day < 0 or day > 6 for day in value) or len(set(value)) != len(value):
-            raise ValueError('Обери різні дні тижня від 0 до 6')
+            raise ValueError("Обери різні дні тижня від 0 до 6")
         return sorted(value)
 
 
@@ -176,19 +181,19 @@ class HabitPublic(HabitBase):
 
 # Усі поля необов'язкові: можна змінити лише назву, не чіпаючи опис.
 class HabitUpdate(SQLModel):
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra="forbid")
     name: str | None = Field(default=None, min_length=1, max_length=100)
     description: str | None = None
     archived: bool | None = None
 
-    @field_validator('name', 'description', 'archived', mode='before')
+    @field_validator("name", "description", "archived", mode="before")
     @classmethod
     def reject_null(cls, value):
         if value is None:
-            raise ValueError('Значення не може бути null')
+            raise ValueError("Значення не може бути null")
         return value
 
-    @field_validator('name', mode='before')
+    @field_validator("name", mode="before")
     @classmethod
     def trim_name(cls, value):
         return normalize_name(value)
@@ -238,8 +243,8 @@ class HabitStats(SQLModel):
     показники рахуються заново на кожен запит."""
 
     habit_id: int
-    total: int              # скільки всього днів відмічено
-    current_streak: int     # днів поспіль просто зараз
-    longest_streak: int     # найдовша серія за всю історію
-    done_today: bool        # чи відмічено сьогодні
-    last_day: date | None   # остання відмітка
+    total: int  # скільки всього днів відмічено
+    current_streak: int  # днів поспіль просто зараз
+    longest_streak: int  # найдовша серія за всю історію
+    done_today: bool  # чи відмічено сьогодні
+    last_day: date | None  # остання відмітка

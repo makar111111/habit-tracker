@@ -18,8 +18,11 @@ MON, TUE, SUN = 0, 1, 6
 
 def test_local_day_depends_on_timezone(monkeypatch):
     """Та сама мить у UTC — різні календарні дні в Києві й Нью-Йорку."""
-    monkeypatch.setattr(calendar_rules, "now_utc",
-                        lambda: datetime(2026, 9, 12, 23, 30, tzinfo=timezone.utc))
+    monkeypatch.setattr(
+        calendar_rules,
+        "now_utc",
+        lambda: datetime(2026, 9, 12, 23, 30, tzinfo=timezone.utc),
+    )
 
     assert calendar_rules.local_day("Europe/Kyiv") == date(2026, 9, 13)
     assert calendar_rules.local_day("America/New_York") == date(2026, 9, 12)

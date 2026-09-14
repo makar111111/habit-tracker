@@ -14,9 +14,9 @@ Files: models.py, main.py, auth.py, config.py, database.py, stats.py, new calend
 
 - [x] Add failing endpoint regressions and assert the persisted list remains valid:
   ```python
-  response = client.patch(f'/habits/{habit_id}', json={'name': ''})
+  response = client.patch(f"/habits/{habit_id}", json={"name": ""})
   assert response.status_code == 422
-  assert client.get('/habits').status_code == 200
+  assert client.get("/habits").status_code == 200
   ```
 - [x] Add tests for schedule fields, archive/restore, owner-only export, partial settings, timezone dates, and scheduled streaks.
 - [x] Implement the exact fields and routes in the approved design, preserving existing route defaults.

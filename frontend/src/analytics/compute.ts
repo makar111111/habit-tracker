@@ -51,8 +51,18 @@ export interface WeekdayPoint {
 const WEEKDAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"];
 
 const MONTHS_SHORT = [
-  "січ", "лют", "бер", "кві", "тра", "чер",
-  "лип", "сер", "вер", "жов", "лис", "гру",
+  "січ",
+  "лют",
+  "бер",
+  "кві",
+  "тра",
+  "чер",
+  "лип",
+  "сер",
+  "вер",
+  "жов",
+  "лис",
+  "гру",
 ];
 
 /**
@@ -115,11 +125,7 @@ export function habitSeries(habits: HabitDays[], today: Date, days: number): Hab
  * «понеділок — найпродуктивніший день», хоча це лише арифметика
  * календаря, а не поведінка людини.
  */
-export function weekdaySeries(
-  habits: HabitDays[],
-  today: Date,
-  days: number,
-): WeekdayPoint[] {
+export function weekdaySeries(habits: HabitDays[], today: Date, days: number): WeekdayPoint[] {
   const done = Array(7).fill(0);
   const possible = Array(7).fill(0);
 
@@ -154,20 +160,20 @@ export function summary(habits: HabitDays[], today: Date, days: number) {
   const period = lastDays(today, days).map(toISO);
 
   const doneInPeriod = habits.reduce(
-    (sum, habit) => sum + period.filter((iso) => isScheduledOn(habit, iso) && habit.days.has(iso)).length,
+    (sum, habit) =>
+      sum + period.filter((iso) => isScheduledOn(habit, iso) && habit.days.has(iso)).length,
     0,
   );
 
   const possible = habits.reduce(
-    (sum, habit) => sum + period.filter((iso) => isScheduledOn(habit, iso)).length, 0,
+    (sum, habit) => sum + period.filter((iso) => isScheduledOn(habit, iso)).length,
+    0,
   );
 
   // Дні, коли зроблено хоч щось. Показник «я взагалі підходив до
   // трекера» — він набагато менш суворий, ніж відсоток виконання,
   // і в погані тижні саме він не дає опустити руки.
-  const activeDays = period.filter((iso) =>
-    habits.some((habit) => habit.days.has(iso)),
-  ).length;
+  const activeDays = period.filter((iso) => habits.some((habit) => habit.days.has(iso))).length;
 
   return {
     rate: possible === 0 ? 0 : Math.round((doneInPeriod / possible) * 100),

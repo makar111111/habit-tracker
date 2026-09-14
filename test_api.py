@@ -62,7 +62,7 @@ def test_patch_changes_only_given_fields(client: TestClient, habit_id: int):
 
     habit = client.get(f"/habits/{habit_id}").json()
     assert habit["description"] == "новий опис"
-    assert habit["name"] == "Тестова звичка"   # назва вціліла
+    assert habit["name"] == "Тестова звичка"  # назва вціліла
 
 
 def test_delete_habit(client: TestClient, habit_id: int):

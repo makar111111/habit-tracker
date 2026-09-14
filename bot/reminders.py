@@ -84,7 +84,8 @@ async def undone_habit_names(
     """Невідмічені звички, заплановані на місцевий день людини."""
     habits = await api.habits_with_stats(telegram_id)
     return [
-        habit["name"] for habit in habits
+        habit["name"]
+        for habit in habits
         if (is_planned_on(habit, day) if day else habit.get("due_today", True))
         and not (habit.get("stats") or {}).get("done_today")
     ]
@@ -112,8 +113,10 @@ async def send_reminders(
         telegram_id = target["telegram_id"]
         try:
             day = reminder_day(target, now)
-        except (KeyError, ValueError):
-            logging.warning("Некоректні налаштування нагадування користувача %s", telegram_id)
+        except KeyError, ValueError:
+            logging.warning(
+                "Некоректні налаштування нагадування користувача %s", telegram_id
+            )
             continue
         if day is None:
             continue
@@ -121,9 +124,7 @@ async def send_reminders(
         try:
             names = await undone_habit_names(api, telegram_id, day)
         except ApiError:
-            logging.warning(
-                "Не вдалося перевірити звички користувача %s", telegram_id
-            )
+            logging.warning("Не вдалося перевірити звички користувача %s", telegram_id)
             continue
 
         if not names:
@@ -149,7 +150,8 @@ async def send_reminders(
         except ApiError:
             logging.warning(
                 "Нагадування користувачу %s доставлено, але день не збережено; "
-                "можливе повторне надсилання", telegram_id,
+                "можливе повторне надсилання",
+                telegram_id,
             )
 
 

@@ -11,10 +11,7 @@ from bot.views import habits_view
 
 router = Router(name="checkin")
 
-MID_DIALOG = (
-    "Спершу завершимо почате.\n"
-    "Надішли /cancel, якщо передумав."
-)
+MID_DIALOG = "Спершу завершимо почате.\nНадішли /cancel, якщо передумав."
 
 
 # F.action == "toggle", а не просто HabitCallback.filter(): у кнопки звички
@@ -23,7 +20,10 @@ MID_DIALOG = (
 # лише перемикати відмітку.
 @router.callback_query(HabitCallback.filter(F.action == "toggle"))
 async def toggle_checkin(
-    callback: CallbackQuery, callback_data: HabitCallback, api: HabitsAPI, state: FSMContext
+    callback: CallbackQuery,
+    callback_data: HabitCallback,
+    api: HabitsAPI,
+    state: FSMContext,
 ) -> None:
     """Перемкнути стан звички на сьогодні.
 
@@ -67,9 +67,7 @@ async def toggle_checkin(
         # API визначає день у часовому поясі власника. Годинник бота
         # може показувати іншу дату, а last_day — майбутню відмітку.
         today = await api.today(telegram_id)
-        removed = await api.undo_check_in(
-            telegram_id, callback_data.habit_id, today
-        )
+        removed = await api.undo_check_in(telegram_id, callback_data.habit_id, today)
         # Не оголошуємо успіх наосліп: якщо відмітку встиг зняти хтось
         # інший (той самий акаунт у браузері), чесніше сказати правду.
         note = "Відмітку знято" if removed else "Відмітку вже було знято"

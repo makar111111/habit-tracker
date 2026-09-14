@@ -11,18 +11,34 @@ export function TodayScreen({ today }: { today: Date }) {
   const day = toISO(today);
   const planned = query.items.filter((item) => isScheduledOn(item.habit, day));
   const other = query.items.filter((item) => !isScheduledOn(item.habit, day));
-  return <>
-    {!query.error && !query.isLoading && <ProgressPanel items={planned} />}
-    {!query.isLoading && !query.error && <NewHabit today={today} empty={query.items.length === 0} />}
-    {query.error ? <QueryError error={query.error} retry={query.refetch} /> : <>
-      {query.items.length > 0 && <h2 className="section-title">За розкладом сьогодні</h2>}
-      <HabitList items={planned} isLoading={query.isLoading} today={today}
-        emptyMessage={query.items.length ? "На сьогодні немає запланованих звичок." : undefined} />
-      {other.length > 0 && <>
-        <h2 className="section-title">Інші активні звички</h2>
-        <p className="chart-note">Можна виконати додатково. Ці відмітки збережуться в історії.</p>
-        <HabitList items={other} isLoading={false} today={today} />
-      </>}
-    </>}
-  </>;
+  return (
+    <>
+      {!query.error && !query.isLoading && <ProgressPanel items={planned} />}
+      {!query.isLoading && !query.error && (
+        <NewHabit today={today} empty={query.items.length === 0} />
+      )}
+      {query.error ? (
+        <QueryError error={query.error} retry={query.refetch} />
+      ) : (
+        <>
+          {query.items.length > 0 && <h2 className="section-title">За розкладом сьогодні</h2>}
+          <HabitList
+            items={planned}
+            isLoading={query.isLoading}
+            today={today}
+            emptyMessage={query.items.length ? "На сьогодні немає запланованих звичок." : undefined}
+          />
+          {other.length > 0 && (
+            <>
+              <h2 className="section-title">Інші активні звички</h2>
+              <p className="chart-note">
+                Можна виконати додатково. Ці відмітки збережуться в історії.
+              </p>
+              <HabitList items={other} isLoading={false} today={today} />
+            </>
+          )}
+        </>
+      )}
+    </>
+  );
 }

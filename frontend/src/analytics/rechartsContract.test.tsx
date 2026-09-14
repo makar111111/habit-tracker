@@ -25,7 +25,9 @@ describe("Recharts: нуль і відсутність значення", () => 
         <XAxis dataKey="label" />
         <YAxis domain={[0, 100]} />
         <Bar dataKey="percent" minPointSize={3} isAnimationActive={false}>
-          {data.map((point) => <Cell key={point.label} fill={point.percent === 0 ? "gray" : "blue"} />)}
+          {data.map((point) => (
+            <Cell key={point.label} fill={point.percent === 0 ? "gray" : "blue"} />
+          ))}
         </Bar>
       </BarChart>,
     );
@@ -40,8 +42,13 @@ describe("Recharts: щільна «Динаміка» на телефоні", ()
   function barWidth(points: number, chartWidth: number) {
     const data = Array.from({ length: points }, (_, i) => ({ label: String(i), percent: 60 }));
     const { container } = render(
-      <BarChart width={chartWidth} height={200} data={data}
-        margin={{ top: 4, right: 8, bottom: 0, left: 0 }} barCategoryGap={DAILY_BAR_GAP}>
+      <BarChart
+        width={chartWidth}
+        height={200}
+        data={data}
+        margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
+        barCategoryGap={DAILY_BAR_GAP}
+      >
         <XAxis dataKey="label" />
         <YAxis width={48} domain={[0, 100]} />
         <Bar dataKey="percent" isAnimationActive={false} />

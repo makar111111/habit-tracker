@@ -91,20 +91,46 @@ describe("Паралельні відмітки", () => {
     client.setQueryData(keys.checkins(2, "2026-05-16"), []);
     const finish: Array<(value: Checkin[]) => void> = [];
     vi.spyOn(api, "checkIn").mockResolvedValue(true);
-    vi.spyOn(api, "listStats").mockResolvedValue([stats({ done_today: true }), stats({ habit_id: 2, done_today: true })]);
-    vi.spyOn(api, "listCheckins").mockImplementation(() => new Promise((resolve) => { finish.push(resolve); }));
-    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client }, children);
-    const { result } = renderHook(() => {
-      useStats(true); useCheckins(1, true, date); useCheckins(2, true, date);
-      return { first: useToggleCheckin(), second: useToggleCheckin() };
-    }, { wrapper });
+    vi.spyOn(api, "listStats").mockResolvedValue([
+      stats({ done_today: true }),
+      stats({ habit_id: 2, done_today: true }),
+    ]);
+    vi.spyOn(api, "listCheckins").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish.push(resolve);
+        }),
+    );
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client }, children);
+    const { result } = renderHook(
+      () => {
+        useStats(true);
+        useCheckins(1, true, date);
+        useCheckins(2, true, date);
+        return { first: useToggleCheckin(), second: useToggleCheckin() };
+      },
+      { wrapper },
+    );
     act(() => {
-      result.current.first.mutate({ habitId: 1, done: false, day: "2026-09-12", today: "2026-09-12" });
-      result.current.second.mutate({ habitId: 2, done: false, day: "2026-09-12", today: "2026-09-12" });
+      result.current.first.mutate({
+        habitId: 1,
+        done: false,
+        day: "2026-09-12",
+        today: "2026-09-12",
+      });
+      result.current.second.mutate({
+        habitId: 2,
+        done: false,
+        day: "2026-09-12",
+        today: "2026-09-12",
+      });
     });
     await waitFor(() => expect(finish).toHaveLength(2));
     act(() => finish.forEach((resolve) => resolve([])));
-    await waitFor(() => expect(result.current.first.isSuccess && result.current.second.isSuccess).toBe(true));
+    await waitFor(() =>
+      expect(result.current.first.isSuccess && result.current.second.isSuccess).toBe(true),
+    );
     await waitFor(() => expect(api.listStats).toHaveBeenCalledTimes(1));
     client.clear();
   });
@@ -114,14 +140,34 @@ describe("Паралельні відмітки", () => {
     client.setQueryData(keys.stats, [stats(), stats({ habit_id: 2 })]);
     let rejectFirst!: (reason: Error) => void;
     let resolveSecond!: (result: boolean) => void;
-    vi.spyOn(api, "checkIn").mockImplementation((id) => id === 1
-      ? new Promise<boolean>((_resolve, reject) => { rejectFirst = reject; })
-      : new Promise<boolean>((resolve) => { resolveSecond = resolve; }));
-    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client }, children);
-    const { result } = renderHook(() => ({ first: useToggleCheckin(), second: useToggleCheckin() }), { wrapper });
+    vi.spyOn(api, "checkIn").mockImplementation((id) =>
+      id === 1
+        ? new Promise<boolean>((_resolve, reject) => {
+            rejectFirst = reject;
+          })
+        : new Promise<boolean>((resolve) => {
+            resolveSecond = resolve;
+          }),
+    );
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client }, children);
+    const { result } = renderHook(
+      () => ({ first: useToggleCheckin(), second: useToggleCheckin() }),
+      { wrapper },
+    );
     act(() => {
-      result.current.first.mutate({ habitId: 1, done: false, day: "2026-09-12", today: "2026-09-12" });
-      result.current.second.mutate({ habitId: 2, done: false, day: "2026-09-12", today: "2026-09-12" });
+      result.current.first.mutate({
+        habitId: 1,
+        done: false,
+        day: "2026-09-12",
+        today: "2026-09-12",
+      });
+      result.current.second.mutate({
+        habitId: 2,
+        done: false,
+        day: "2026-09-12",
+        today: "2026-09-12",
+      });
     });
     await waitFor(() => expect(api.checkIn).toHaveBeenCalledTimes(2));
     act(() => rejectFirst(new Error("Помилка першої звички")));
@@ -137,9 +183,12 @@ describe("Паралельні відмітки", () => {
   it("передає саме дату користувача, а не браузера", async () => {
     const client = createQueryClient();
     vi.spyOn(api, "checkIn").mockResolvedValue(true);
-    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client }, children);
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client }, children);
     const { result } = renderHook(() => useToggleCheckin(), { wrapper });
-    act(() => result.current.mutate({ habitId: 1, done: false, day: "2025-02-12", today: "2025-02-12" }));
+    act(() =>
+      result.current.mutate({ habitId: 1, done: false, day: "2025-02-12", today: "2025-02-12" }),
+    );
     await waitFor(() => expect(api.checkIn).toHaveBeenCalledWith(1, "2025-02-12"));
     client.clear();
   });
@@ -158,11 +207,24 @@ describe("applyToggle — межі відповідальності", () => {
 describe("Завершення сеансу", () => {
   it("не дозволяє пізньому збереженню профілю повернути користувача після виходу", async () => {
     const client = createQueryClient();
-    const current: User = { id: 1, telegram_id: 42, name: "Олена", timezone: "Europe/Kyiv", reminder_hour: 20, reminders_enabled: true };
+    const current: User = {
+      id: 1,
+      telegram_id: 42,
+      name: "Олена",
+      timezone: "Europe/Kyiv",
+      reminder_hour: 20,
+      reminders_enabled: true,
+    };
     client.setQueryData(keys.me, current);
     let resolve!: (user: User) => void;
-    vi.spyOn(api, "updateMe").mockImplementation(() => new Promise<User>((done) => { resolve = done; }));
-    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client }, children);
+    vi.spyOn(api, "updateMe").mockImplementation(
+      () =>
+        new Promise<User>((done) => {
+          resolve = done;
+        }),
+    );
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client }, children);
     const { result } = renderHook(() => useUpdateMe(), { wrapper });
     act(() => result.current.mutate({ timezone: "Asia/Tokyo" }));
     await waitFor(() => expect(api.updateMe).toHaveBeenCalledOnce());

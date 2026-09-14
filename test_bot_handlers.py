@@ -178,7 +178,9 @@ class BotUnderTest:
                     date=datetime.now(),
                     chat=CHAT,
                     from_user=USER,
-                    photo=[PhotoSize(file_id="f", file_unique_id="fu", width=10, height=10)],
+                    photo=[
+                        PhotoSize(file_id="f", file_unique_id="fu", width=10, height=10)
+                    ],
                     caption=caption,
                 ),
             ),
@@ -306,7 +308,15 @@ async def test_full_creation_dialog(tg: BotUnderTest):
     await tg.tap("menu:skip_description")
     assert "Коли виконувати" in tg.texts[-1]
     assert "Зараз: <b>Щодня</b>" in tg.texts[-1]
-    assert tg.buttons[:7] == ["✅ Пн", "✅ Вт", "✅ Ср", "✅ Чт", "✅ Пт", "✅ Сб", "✅ Нд"]
+    assert tg.buttons[:7] == [
+        "✅ Пн",
+        "✅ Вт",
+        "✅ Ср",
+        "✅ Чт",
+        "✅ Пт",
+        "✅ Сб",
+        "✅ Нд",
+    ]
     assert "Створити звичку" in tg.buttons
     # Звички ще немає: без розкладу створювати рано.
     assert await tg.api.list_habits(USER.id) == []
@@ -388,19 +398,25 @@ async def test_tapping_habit_marks_and_unmarks(tg: BotUnderTest):
     assert any("⬜ Зарядка" in b for b in tg.buttons)
 
 
-async def test_undo_uses_owner_day_when_bot_clock_is_on_previous_day(tg: BotUnderTest, monkeypatch):
+async def test_undo_uses_owner_day_when_bot_clock_is_on_previous_day(
+    tg: BotUnderTest, monkeypatch
+):
     class HostDate(date):
         @classmethod
         def today(cls):
             return date(2026, 9, 12)
 
     monkeypatch.setattr(checkin, "date", HostDate, raising=False)
-    monkeypatch.setattr(calendar_rules, "now_utc",
-                        lambda: datetime(2026, 9, 12, 23, 30, tzinfo=timezone.utc))
+    monkeypatch.setattr(
+        calendar_rules,
+        "now_utc",
+        lambda: datetime(2026, 9, 12, 23, 30, tzinfo=timezone.utc),
+    )
     habit = await tg.api.create_habit(USER.id, "Йога")
     await tg.api.check_in(USER.id, habit["id"])
-    previous = await tg.api._request("POST", f"/habits/{habit['id']}/checkins", USER.id,
-                                     json={"day": "2026-09-12"})
+    previous = await tg.api._request(
+        "POST", f"/habits/{habit['id']}/checkins", USER.id, json={"day": "2026-09-12"}
+    )
     assert previous.status_code == 201
 
     await tg.tap(f"habit:toggle:{habit['id']}")
@@ -422,20 +438,30 @@ async def test_tapping_foreign_habit_does_not_change_its_owner(tg: BotUnderTest)
     assert not any(text in {"Відмічено 🔥", "Відмітку знято"} for text in tg.texts)
 
 
-async def test_habits_list_counts_planned_habits_and_labels_rest_days(tg: BotUnderTest, monkeypatch):
-    monkeypatch.setattr(calendar_rules, "now_utc",
-                        lambda: datetime(2026, 9, 12, 23, 30, tzinfo=timezone.utc))
+async def test_habits_list_counts_planned_habits_and_labels_rest_days(
+    tg: BotUnderTest, monkeypatch
+):
+    monkeypatch.setattr(
+        calendar_rules,
+        "now_utc",
+        lambda: datetime(2026, 9, 12, 23, 30, tzinfo=timezone.utc),
+    )
     await tg.api.create_habit(USER.id, "Щодня")
     for name, fields in [
         ("Відпочинок", {"weekdays": [5]}),
         ("Архів", {}),
     ]:
-        response = await tg.api._request("POST", "/habits", USER.id,
-                                         json={"name": name, **fields})
+        response = await tg.api._request(
+            "POST", "/habits", USER.id, json={"name": name, **fields}
+        )
         assert response.status_code == 201, response.text
         if name == "Архів":
-            response = await tg.api._request("PATCH", f"/habits/{response.json()['id']}",
-                                             USER.id, json={"archived": True})
+            response = await tg.api._request(
+                "PATCH",
+                f"/habits/{response.json()['id']}",
+                USER.id,
+                json={"archived": True},
+            )
             assert response.status_code == 200, response.text
 
     await tg.send("/habits")
@@ -449,8 +475,12 @@ async def test_habits_list_counts_planned_habits_and_labels_rest_days(tg: BotUnd
 
 async def test_habit_card_explains_rest_day(tg: BotUnderTest):
     today = await tg.api.today(USER.id)
-    response = await tg.api._request("POST", "/habits", USER.id,
-                                     json={"name": "Йога", "weekdays": [(today.weekday() + 1) % 7]})
+    response = await tg.api._request(
+        "POST",
+        "/habits",
+        USER.id,
+        json={"name": "Йога", "weekdays": [(today.weekday() + 1) % 7]},
+    )
     assert response.status_code == 201, response.text
     habit = response.json()
 
@@ -526,7 +556,10 @@ async def test_double_tap_does_not_crash(tg: BotUnderTest):
     habit_id = await create_habit_via_dialog(tg, "Зарядка")
 
     tg.bot.session.sent.clear()
-    u1, u2 = tg.make_tap(f"habit:toggle:{habit_id}"), tg.make_tap(f"habit:toggle:{habit_id}")
+    u1, u2 = (
+        tg.make_tap(f"habit:toggle:{habit_id}"),
+        tg.make_tap(f"habit:toggle:{habit_id}"),
+    )
     await asyncio.gather(tg.feed(u1), tg.feed(u2))
 
     alerts = [t for k, t, *_ in tg.sent if k == "Alert"]
@@ -535,7 +568,8 @@ async def test_double_tap_does_not_crash(tg: BotUnderTest):
     )
 
     stats = next(
-        h["stats"] for h in await tg.api.habits_with_stats(USER.id)
+        h["stats"]
+        for h in await tg.api.habits_with_stats(USER.id)
         if h["id"] == habit_id
     )
     # Один тап відмічає, другий одразу знімає — after both, done_today=False.
@@ -557,6 +591,7 @@ async def test_error_between_checkin_and_redraw_informs_user_once(
     habit_id = await create_habit_via_dialog(tg, "Зарядка")
 
     import bot.views
+
     calls = {"n": 0}
     original = bot.views.habits_view
 
@@ -564,6 +599,7 @@ async def test_error_between_checkin_and_redraw_informs_user_once(
         calls["n"] += 1
         if calls["n"] == 1:
             from bot.api import ApiUnavailable
+
             raise ApiUnavailable("сервер тимчасово ліг")
         return await original(api, tid)
 
@@ -578,7 +614,8 @@ async def test_error_between_checkin_and_redraw_informs_user_once(
     # Відмітка в базі все одно поставилась — check_in устиг відпрацювати
     # до збою в перемальовуванні.
     stats = next(
-        h["stats"] for h in await tg.api.habits_with_stats(USER.id)
+        h["stats"]
+        for h in await tg.api.habits_with_stats(USER.id)
         if h["id"] == habit_id
     )
     assert stats["done_today"] is True
@@ -629,7 +666,9 @@ async def test_double_click_create_makes_exactly_one_habit(tg: BotUnderTest):
     await asyncio.gather(tg.feed(u1), tg.feed(u2))
 
     habits = await tg.api.list_habits(USER.id)
-    assert [h["name"] for h in habits] == ["Читати"], "мала створитись рівно одна звичка"
+    assert [h["name"] for h in habits] == ["Читати"], (
+        "мала створитись рівно одна звичка"
+    )
 
     texts = [t for k, t, *_ in tg.sent if k == "SendMessage"]
     assert any("Готово" in t for t in texts)
@@ -659,8 +698,11 @@ async def test_start_escapes_html_in_own_name(tg: BotUnderTest):
         Update(
             update_id=999,
             message=Message(
-                message_id=999, date=datetime.now(), chat=Chat(id=5555, type="private"),
-                from_user=weird_user, text="/start",
+                message_id=999,
+                date=datetime.now(),
+                chat=Chat(id=5555, type="private"),
+                from_user=weird_user,
+                text="/start",
             ),
         ),
     )
@@ -888,7 +930,8 @@ async def test_tapping_habit_during_rename_is_refused(tg: BotUnderTest):
 
     assert "Спершу завершимо" in tg.texts[0]
     stats = next(
-        h["stats"] for h in await tg.api.habits_with_stats(USER.id)
+        h["stats"]
+        for h in await tg.api.habits_with_stats(USER.id)
         if h["id"] == habit_id
     )
     assert stats["done_today"] is False
@@ -1043,13 +1086,16 @@ async def test_double_click_skip_shows_one_schedule_prompt(tg: BotUnderTest):
     u2 = tg.make_tap("menu:skip_description")
     await asyncio.gather(tg.feed(u1), tg.feed(u2))
 
-    prompts = [t for k, t, *_ in tg.sent if k == "SendMessage" and "Коли виконувати" in t]
+    prompts = [
+        t for k, t, *_ in tg.sent if k == "SendMessage" and "Коли виконувати" in t
+    ]
     assert len(prompts) == 1
 
 
 async def test_habit_card_shows_schedule(tg: BotUnderTest):
-    response = await tg.api._request("POST", "/habits", USER.id,
-                                     json={"name": "Спортзал", "weekdays": [0, 2, 4]})
+    response = await tg.api._request(
+        "POST", "/habits", USER.id, json={"name": "Спортзал", "weekdays": [0, 2, 4]}
+    )
     assert response.status_code == 201, response.text
 
     await tg.tap(f"habit:open:{response.json()['id']}")

@@ -6,7 +6,14 @@ import { ProgressPanel } from "./ProgressPanel";
 
 function item(name: string, doneToday: boolean): HabitWithStats {
   return {
-    habit: { id: name.length, name, description: "", start_date: null, weekdays: [0, 1, 2, 3, 4, 5, 6], archived_at: null },
+    habit: {
+      id: name.length,
+      name,
+      description: "",
+      start_date: null,
+      weekdays: [0, 1, 2, 3, 4, 5, 6],
+      archived_at: null,
+    },
     stats: {
       habit_id: name.length,
       total: 1,

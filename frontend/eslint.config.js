@@ -20,7 +20,18 @@ export default tseslint.config(
       // змінну, якої немає в масиві залежностей. Результат — застарілі
       // дані на екрані без жодної помилки.
       ...reactHooks.configs.recommended.rules,
-      "no-restricted-exports": ["error", { restrictDefaultExports: { direct: true, named: true, defaultFrom: true, namedFrom: true, namespaceFrom: true } }],
+      "no-restricted-exports": [
+        "error",
+        {
+          restrictDefaultExports: {
+            direct: true,
+            named: true,
+            defaultFrom: true,
+            namedFrom: true,
+            namespaceFrom: true,
+          },
+        },
+      ],
     },
   },
   {

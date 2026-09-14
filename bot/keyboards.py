@@ -217,9 +217,14 @@ def schedule_keyboard(weekdays: list[int]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for day, name in enumerate(WEEKDAY_NAMES):
         mark = "✅" if day in weekdays else "▫️"
-        builder.button(text=f"{mark} {name}", callback_data=ScheduleCallback(action="toggle", day=day))
+        builder.button(
+            text=f"{mark} {name}",
+            callback_data=ScheduleCallback(action="toggle", day=day),
+        )
     builder.button(text="Щодня", callback_data=ScheduleCallback(action="daily"))
     builder.button(text="Будні", callback_data=ScheduleCallback(action="workdays"))
-    builder.button(text="Створити звичку", callback_data=ScheduleCallback(action="done"))
+    builder.button(
+        text="Створити звичку", callback_data=ScheduleCallback(action="done")
+    )
     builder.adjust(4, 3, 2, 1)
     return builder.as_markup()

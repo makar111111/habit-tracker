@@ -50,10 +50,7 @@ CLEAR_MARKER = "-"
 
 GONE = "Цієї звички вже немає. Онови список: /habits"
 
-ASK_NAME = (
-    "Введи нову назву.\n\n"
-    "Надішли /cancel, щоб лишити як було."
-)
+ASK_NAME = "Введи нову назву.\n\nНадішли /cancel, щоб лишити як було."
 ASK_DESCRIPTION = (
     f"Введи новий опис.\n\n"
     f"Надішли «{CLEAR_MARKER}», щоб прибрати опис зовсім, "
@@ -277,9 +274,7 @@ async def _apply(
 
 
 @router.message(EditHabit.name, F.text)
-async def got_new_name(
-    message: Message, state: FSMContext, api: HabitsAPI
-) -> None:
+async def got_new_name(message: Message, state: FSMContext, api: HabitsAPI) -> None:
     name = (message.text or "").strip()
 
     if not name:
@@ -324,6 +319,6 @@ async def got_new_description(
 @router.message(EditHabit.description)
 async def new_description_must_be_text(message: Message) -> None:
     await message.answer(
-        f'Потрібен текст. Надішли опис словами, «{CLEAR_MARKER}» щоб прибрати, '
+        f"Потрібен текст. Надішли опис словами, «{CLEAR_MARKER}» щоб прибрати, "
         f"або /cancel."
     )

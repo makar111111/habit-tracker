@@ -50,7 +50,9 @@ def _verify_schema(connection: Connection, *, current: bool) -> None:
     inspector = inspect(connection)
     tables = set(inspector.get_table_names())
     for table, base_columns in _BASE_COLUMNS.items():
-        required = base_columns | set(_V1_COLUMNS.get(table, {})) if current else base_columns
+        required = (
+            base_columns | set(_V1_COLUMNS.get(table, {})) if current else base_columns
+        )
         if table not in tables:
             # У старих випусках до вебвходу цієї таблиці могло не бути.
             if table == "logintoken" and not current:
@@ -58,7 +60,9 @@ def _verify_schema(connection: Connection, *, current: bool) -> None:
             raise MigrationError(f"Unsupported SQLite schema: missing table {table}")
         missing = required - {column["name"] for column in inspector.get_columns(table)}
         if missing:
-            raise MigrationError(f"Unsupported SQLite schema: {table} lacks {sorted(missing)}")
+            raise MigrationError(
+                f"Unsupported SQLite schema: {table} lacks {sorted(missing)}"
+            )
 
 
 def _verify_data(connection: Connection) -> None:
@@ -76,7 +80,9 @@ def _upgrade_to_v1(connection: Connection) -> None:
         for name, definition in columns.items():
             if name not in existing:
                 # Імена та визначення є константами коду, не даними запиту.
-                connection.exec_driver_sql(f'ALTER TABLE "{table}" ADD COLUMN "{name}" {definition}')
+                connection.exec_driver_sql(
+                    f'ALTER TABLE "{table}" ADD COLUMN "{name}" {definition}'
+                )
     today = datetime.now(ZoneInfo("Europe/Kyiv")).date().isoformat()
     connection.exec_driver_sql(
         """UPDATE habit SET start_date = COALESCE(
@@ -121,7 +127,8 @@ def upgrade(engine: Engine) -> MigrationResult:
                 _verify_schema(connection, current=False)
                 _verify_data(connection)
                 filename = next(
-                    row[2] for row in connection.exec_driver_sql("PRAGMA database_list")
+                    row[2]
+                    for row in connection.exec_driver_sql("PRAGMA database_list")
                     if row[1] == "main"
                 )
                 if filename:
@@ -130,7 +137,10 @@ def upgrade(engine: Engine) -> MigrationResult:
                     directory.mkdir(parents=True, exist_ok=True)
                     # Коротка унікальна назва працює також у вкладених
                     # Windows-теках; O_EXCL у backup не дає перезаписати.
-                    destination = directory / f"{source.name}.pre-v{CURRENT_VERSION}-{uuid4().hex[:12]}.sqlite3"
+                    destination = (
+                        directory
+                        / f"{source.name}.pre-v{CURRENT_VERSION}-{uuid4().hex[:12]}.sqlite3"
+                    )
                     snapshot = backup_database(source, destination)
 
             SQLModel.metadata.create_all(connection)

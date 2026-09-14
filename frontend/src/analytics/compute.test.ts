@@ -54,8 +54,12 @@ describe("dailySeries", () => {
   it("рахує відсоток від запланованого саме на цей день", () => {
     // 1 з 2 і 2 з 4 — однаково 50%. Висота за кількістю показала б другий
     // день удвічі кращим, хоча людина трималася однаково.
-    const habits = [habit("Йога", back(0, 1)), habit("Читання", back(1)),
-      habit("Біг", []), habit("Англійська", [])];
+    const habits = [
+      habit("Йога", back(0, 1)),
+      habit("Читання", back(1)),
+      habit("Біг", []),
+      habit("Англійська", []),
+    ];
     const yesterday = dailySeries(habits, TODAY, 2)[0];
     expect(yesterday).toMatchObject({ done: 2, total: 4, percent: 50 });
   });
@@ -92,7 +96,13 @@ describe("habitSeries", () => {
 describe("weekdaySeries", () => {
   it("починає тиждень з понеділка", () => {
     expect(weekdaySeries([], TODAY, 7).map((p) => p.label)).toEqual([
-      "Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд",
+      "Пн",
+      "Вт",
+      "Ср",
+      "Чт",
+      "Пт",
+      "Сб",
+      "Нд",
     ]);
   });
 
@@ -159,19 +169,23 @@ describe("Розклад і межі життя звички", () => {
   it("не рахує вихідні та додаткові відмітки поза розкладом у відсотку", () => {
     const planned = {
       ...habit("Йога", ["2026-09-07", "2026-09-09", "2026-09-12"]),
-      start_date: "2026-09-07", weekdays: [0, 2, 4],
+      start_date: "2026-09-07",
+      weekdays: [0, 2, 4],
     };
     expect(summary([planned], TODAY, 30).rate).toBe(67);
     expect(summary([planned], TODAY, 30).activeDays).toBe(3);
     expect(habitSeries([planned], TODAY, 30)[0]).toMatchObject({ done: 2, percent: 67 });
     expect(dailySeries([planned], TODAY, 7).at(-1)).toMatchObject({ done: 0, total: 0 });
-    expect(weekdaySeries([planned], TODAY, 30).find((day) => day.label === "Пн")?.percent).toBe(100);
+    expect(weekdaySeries([planned], TODAY, 30).find((day) => day.label === "Пн")?.percent).toBe(
+      100,
+    );
   });
 
   it("припиняє знаменник у день архівування включно", () => {
     const archived = {
       ...habit("Йога", ["2026-09-07", "2026-09-08"]),
-      start_date: "2026-09-07", archived_at: "2026-09-08",
+      start_date: "2026-09-07",
+      archived_at: "2026-09-08",
     };
     expect(summary([archived], TODAY, 30).rate).toBe(100);
     expect(dailySeries([archived], TODAY, 7).at(-1)?.total).toBe(0);

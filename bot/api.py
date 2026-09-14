@@ -148,7 +148,9 @@ class HabitsAPI:
     async def mark_reminder_sent(self, telegram_id: int, day: date) -> None:
         """Зберегти день лише після успішного надсилання в Telegram."""
         response = await self._request(
-            "POST", f"/reminder-targets/{telegram_id}/sent", None,
+            "POST",
+            f"/reminder-targets/{telegram_id}/sent",
+            None,
             json={"day": day.isoformat()},
         )
         self._ok(response)
@@ -227,10 +229,14 @@ class HabitsAPI:
         # щоб пошук був миттєвий, а не перебором на кожну звичку.
         stats_by_id = {row["habit_id"]: row for row in stats}
 
-        return [habit | {
-            "stats": stats_by_id.get(habit["id"], {}),
-            "due_today": is_planned_on(habit, today),
-        } for habit in habits]
+        return [
+            habit
+            | {
+                "stats": stats_by_id.get(habit["id"], {}),
+                "due_today": is_planned_on(habit, today),
+            }
+            for habit in habits
+        ]
 
     async def create_habit(
         self,

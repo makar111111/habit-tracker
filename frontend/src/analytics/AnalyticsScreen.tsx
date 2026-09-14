@@ -15,13 +15,7 @@ import type { HabitWithStats } from "../api/types";
 import { pluralDays } from "../lib/dates";
 import { useChartColors } from "../lib/useChartColors";
 import { QueryError } from "../components/QueryError";
-import {
-  dailySeries,
-  habitSeries,
-  summary,
-  weekdaySeries,
-  type HabitDays,
-} from "./compute";
+import { dailySeries, habitSeries, summary, weekdaySeries, type HabitDays } from "./compute";
 
 interface Props {
   items: HabitWithStats[];
@@ -69,7 +63,11 @@ function AnalyticsCharts({ items, today }: Props) {
   const colors = useChartColors();
 
   const habitIds = items.map((item) => item.habit.id);
-  const { daysByHabit, isLoading, error, refetch } = useAllCheckins(habitIds, items.length > 0, today);
+  const { daysByHabit, isLoading, error, refetch } = useAllCheckins(
+    habitIds,
+    items.length > 0,
+    today,
+  );
 
   if (error) return <QueryError error={error} retry={refetch} />;
 
@@ -137,13 +135,18 @@ function AnalyticsCharts({ items, today }: Props) {
       </div>
 
       <div className="cards">
-        <StatCard value={totals.possible ? `${totals.rate}%` : "—"} label={`за розкладом за ${days} днів`} />
+        <StatCard
+          value={totals.possible ? `${totals.rate}%` : "—"}
+          label={`за розкладом за ${days} днів`}
+        />
         <StatCard value={totalCheckins} label="відміток за весь час" />
         <StatCard value={bestStreak} label="найдовша серія виконань" />
         <StatCard value={totals.activeDays} label={`активних днів із ${days}`} />
       </div>
 
-      {totals.possible === 0 && <p className="chart-note">У цьому періоді ще немає запланованих днів.</p>}
+      {totals.possible === 0 && (
+        <p className="chart-note">У цьому періоді ще немає запланованих днів.</p>
+      )}
 
       <section className="chart-card">
         <h2>Динаміка</h2>
@@ -159,7 +162,11 @@ function AnalyticsCharts({ items, today }: Props) {
           за кількістю «2 з 2» у вихідний виглядало б гірше, ніж «3 з 5».
         */}
         <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={daily} margin={{ top: 4, right: 8, bottom: 0, left: 0 }} barCategoryGap={DAILY_BAR_GAP}>
+          <BarChart
+            data={daily}
+            margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
+            barCategoryGap={DAILY_BAR_GAP}
+          >
             <CartesianGrid stroke={colors.border} vertical={false} />
             <XAxis
               dataKey="label"
@@ -169,7 +176,14 @@ function AnalyticsCharts({ items, today }: Props) {
               interval={Math.max(0, Math.floor(daily.length / 8))}
               tickLine={false}
             />
-            <YAxis domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} unit="%" {...axis} tickLine={false} width={48} />
+            <YAxis
+              domain={[0, 100]}
+              ticks={[0, 25, 50, 75, 100]}
+              unit="%"
+              {...axis}
+              tickLine={false}
+              width={48}
+            />
             {/* Підсвічується вся смуга дня, а не лише стовпчик: на 90 днях він
                 тонкий, і влучити курсором саме в нього було б важко. */}
             <Tooltip cursor={{ fill: colors.border, fillOpacity: 0.35 }} content={<DayTooltip />} />
@@ -180,7 +194,11 @@ function AnalyticsCharts({ items, today }: Props) {
                 вихідний виглядали б однаковою порожнечею — а це протилежні речі:
                 «не впорався» і «нічого не треба було робити». null (вихідний)
                 Recharts не малює зовсім — див. rechartsContract.test.tsx. */}
-            <Bar dataKey="percent" radius={days > 45 ? [1, 1, 0, 0] : [4, 4, 0, 0]} minPointSize={3}>
+            <Bar
+              dataKey="percent"
+              radius={days > 45 ? [1, 1, 0, 0] : [4, 4, 0, 0]}
+              minPointSize={3}
+            >
               {daily.map((point) => (
                 <Cell key={point.date} fill={point.percent === 0 ? colors.muted : colors.accent} />
               ))}
@@ -201,7 +219,9 @@ function AnalyticsCharts({ items, today }: Props) {
 
       <section className="chart-card">
         <h2>Звички поруч</h2>
-        <p className="chart-note">Виконані дні розкладу від дати початку звички. Дні відпочинку не зменшують результат.</p>
+        <p className="chart-note">
+          Виконані дні розкладу від дати початку звички. Дні відпочинку не зменшують результат.
+        </p>
 
         <ResponsiveContainer width="100%" height={Math.max(120, byHabit.length * 42)}>
           <BarChart
@@ -219,7 +239,10 @@ function AnalyticsCharts({ items, today }: Props) {
               tickLine={false}
               axisLine={false}
             />
-            <Tooltip cursor={{ fill: colors.border, fillOpacity: 0.35 }} content={<HabitTooltip />} />
+            <Tooltip
+              cursor={{ fill: colors.border, fillOpacity: 0.35 }}
+              content={<HabitTooltip />}
+            />
             {/* radius округлює саме той край, де стовпчик закінчується:
                 біля осі він має лишатися прямим, інакше «відклеюється». */}
             <Bar dataKey="percent" fill={colors.accent} radius={[0, 4, 4, 0]} barSize={18} />
@@ -229,14 +252,19 @@ function AnalyticsCharts({ items, today }: Props) {
         <DataTable
           caption="Звички за період"
           head={["Звичка", "Виконано", "Відсоток"]}
-          rows={byHabit.map((point) => [point.name, String(point.done), point.possible ? `${point.percent}%` : "—"])}
+          rows={byHabit.map((point) => [
+            point.name,
+            String(point.done),
+            point.possible ? `${point.percent}%` : "—",
+          ])}
         />
       </section>
 
       <section className="chart-card">
         <h2>Дні тижня</h2>
         <p className="chart-note">
-          Частка виконаних запланованих днів. Додаткові відмітки поза розкладом зберігаються в загальній кількості.
+          Частка виконаних запланованих днів. Додаткові відмітки поза розкладом зберігаються в
+          загальній кількості.
         </p>
 
         <ResponsiveContainer width="100%" height={200}>
@@ -249,7 +277,10 @@ function AnalyticsCharts({ items, today }: Props) {
             <CartesianGrid stroke={colors.border} vertical={false} />
             <XAxis dataKey="label" {...axis} tickLine={false} />
             <YAxis domain={[0, 100]} unit="%" {...axis} tickLine={false} width={48} />
-            <Tooltip cursor={{ fill: colors.border, fillOpacity: 0.35 }} content={<WeekdayTooltip />} />
+            <Tooltip
+              cursor={{ fill: colors.border, fillOpacity: 0.35 }}
+              content={<WeekdayTooltip />}
+            />
             <Bar dataKey="percent" fill={colors.accent} radius={[4, 4, 0, 0]} maxBarSize={40} />
           </BarChart>
         </ResponsiveContainer>
@@ -291,25 +322,36 @@ function firstPayload<T>(props: TooltipProps): T | null {
 }
 
 function DayTooltip(props: TooltipProps) {
-  const point = firstPayload<{ label: string; done: number; total: number; percent: number | null }>(props);
+  const point = firstPayload<{
+    label: string;
+    done: number;
+    total: number;
+    percent: number | null;
+  }>(props);
   if (!point) return null;
 
   return (
     <div className="chart-tooltip">
       <strong>{point.label}</strong>
-      {point.percent === null ? "Нічого не заплановано" : `${point.percent}% — ${point.done} з ${point.total}`}
+      {point.percent === null
+        ? "Нічого не заплановано"
+        : `${point.percent}% — ${point.done} з ${point.total}`}
     </div>
   );
 }
 
 function HabitTooltip(props: TooltipProps) {
-  const point = firstPayload<{ name: string; percent: number; done: number; possible: number }>(props);
+  const point = firstPayload<{ name: string; percent: number; done: number; possible: number }>(
+    props,
+  );
   if (!point) return null;
 
   return (
     <div className="chart-tooltip">
       <strong>{point.name}</strong>
-      {point.possible ? `${point.percent}% — ${point.done} ${pluralDays(point.done)}` : "Немає запланованих днів"}
+      {point.possible
+        ? `${point.percent}% — ${point.done} ${pluralDays(point.done)}`
+        : "Немає запланованих днів"}
     </div>
   );
 }
@@ -334,15 +376,7 @@ function WeekdayTooltip(props: TooltipProps) {
  * під кожним графіком закриває обидва випадки, а <details> лишає її
  * згорнутою, щоб не заважати решті.
  */
-function DataTable({
-  caption,
-  head,
-  rows,
-}: {
-  caption: string;
-  head: string[];
-  rows: string[][];
-}) {
+function DataTable({ caption, head, rows }: { caption: string; head: string[]; rows: string[][] }) {
   return (
     <details>
       <summary className="chart-note" style={{ cursor: "pointer" }}>

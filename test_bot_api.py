@@ -185,9 +185,13 @@ async def test_today_uses_owner_timezone(api: HabitsAPI, monkeypatch):
 
     now = datetime(2026, 9, 12, 12, tzinfo=timezone.utc)
     monkeypatch.setattr(calendar_rules, "now_utc", lambda: now)
-    for telegram_id, zone in [(OLENA, "Pacific/Kiritimati"), (IHOR, "Pacific/Pago_Pago")]:
-        response = await api._request("PATCH", "/users/me", telegram_id,
-                                      json={"timezone": zone})
+    for telegram_id, zone in [
+        (OLENA, "Pacific/Kiritimati"),
+        (IHOR, "Pacific/Pago_Pago"),
+    ]:
+        response = await api._request(
+            "PATCH", "/users/me", telegram_id, json={"timezone": zone}
+        )
         assert response.status_code == 200
         expected = now.astimezone(ZoneInfo(zone)).date()
         assert await api.today(telegram_id) == expected
@@ -205,7 +209,9 @@ async def test_reminder_targets_preserve_settings_and_ack_owner_only(api: Habits
 
     day = await api.today(OLENA)
     await api.mark_reminder_sent(OLENA, day)
-    targets = {target["telegram_id"]: target for target in await api.list_reminder_targets()}
+    targets = {
+        target["telegram_id"]: target for target in await api.list_reminder_targets()
+    }
     assert targets[OLENA]["last_reminder_day"] == day.isoformat()
     assert targets[IHOR]["last_reminder_day"] is None
 
@@ -218,11 +224,17 @@ async def test_habits_with_stats_carries_schedule_for_owner_today(api: HabitsAPI
         ("Відпочинок", {"weekdays": [(today.weekday() + 1) % 7]}),
         ("Архів", {}),
     ]:
-        response = await api._request("POST", "/habits", OLENA, json={"name": name, **fields})
+        response = await api._request(
+            "POST", "/habits", OLENA, json={"name": name, **fields}
+        )
         assert response.status_code == 201, response.text
         if name == "Архів":
-            response = await api._request("PATCH", f"/habits/{response.json()['id']}",
-                                          OLENA, json={"archived": True})
+            response = await api._request(
+                "PATCH",
+                f"/habits/{response.json()['id']}",
+                OLENA,
+                json={"archived": True},
+            )
             assert response.status_code == 200, response.text
 
     habits = {habit["name"]: habit for habit in await api.habits_with_stats(OLENA)}
@@ -331,7 +343,9 @@ async def test_finish_creates_habit_and_clears_state(api: HabitsAPI):
 
     assert result is not None
     text, keyboard = result
-    assert "Йога" in [b.text.split(" ", 1)[-1] for row in keyboard.inline_keyboard for b in row]
+    assert "Йога" in [
+        b.text.split(" ", 1)[-1] for row in keyboard.inline_keyboard for b in row
+    ]
 
     habits = await api.list_habits(OLENA)
     assert habits[0]["name"] == "Йога"
@@ -384,7 +398,11 @@ async def test_finish_preserves_state_when_create_fails(
         await finish(api, state, 1, OLENA)
 
     # Стан і дані мають вціліти — разом із розкладом, щоб повтор не питав його знову.
-    assert await state.get_data() == {"name": "Зарядка", "description": "опис", "weekdays": [0, 2, 4]}
+    assert await state.get_data() == {
+        "name": "Зарядка",
+        "description": "опис",
+        "weekdays": [0, 2, 4],
+    }
     assert await api.list_habits(OLENA) == []
 
     # І головне: жодної звички при цьому не створено.
@@ -402,9 +420,7 @@ async def test_parallel_requests_do_not_corrupt_each_other(api: HabitsAPI):
     for number in range(3):
         await api.create_habit(OLENA, f"Звичка {number}")
 
-    results = await asyncio.gather(
-        *[api.habits_with_stats(OLENA) for _ in range(20)]
-    )
+    results = await asyncio.gather(*[api.habits_with_stats(OLENA) for _ in range(20)])
 
     assert all(len(r) == 3 for r in results)
 

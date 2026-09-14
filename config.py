@@ -61,10 +61,18 @@ LOGIN_TOKEN_TTL_SECONDS = int(os.environ.get("LOGIN_TOKEN_TTL_SECONDS", 300))
 # відкрив http://127.0.0.1:8000 і одразу працюєш. Але на сервері це
 # означає «хто дістався до порту — той і господар», тож за замовчуванням
 # режим ВИМКНЕНО, і вмикати його треба свідомо, у своєму .env.
-ALLOW_LOCAL_USER = os.environ.get("ALLOW_LOCAL_USER", "").lower() in {"1", "true", "yes"}
+ALLOW_LOCAL_USER = os.environ.get("ALLOW_LOCAL_USER", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
 
 # HTTPS-деплой вмикає Secure; для локального HTTP лишається вимкнено.
-SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "").lower() in {"1", "true", "yes"}
+SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
 
 # Порожнє значення вимикає періодичні копії. Compose задає /data/backups.
 BACKUP_DIR = os.environ.get("BACKUP_DIR", "")

@@ -51,15 +51,19 @@ def check_settings() -> None:
         # ДО відправки запиту, і людина бачить лише "Щось пішло не так"
         # без жодного натяку на причину. Перевірка на порожнечу цього не
         # ловить: непорожній кириличний секрет проходить її мовчки.
-        problems.append("BOT_SECRET — лише латиниця й цифри (кирилиця в HTTP-заголовок не влазить)")
+        problems.append(
+            "BOT_SECRET — лише латиниця й цифри (кирилиця в HTTP-заголовок не влазить)"
+        )
 
     if problems:
         print("Бот не може стартувати. У файлі .env бракує:\n")
         for problem in problems:
             print(f"  • {problem}")
         print("\nЗразок лежить у .env.example — скопіюй його в .env.")
-        print('Згенерувати секрет:  python -c "import secrets; '
-              'print(secrets.token_hex(32))"')
+        print(
+            'Згенерувати секрет:  python -c "import secrets; '
+            'print(secrets.token_hex(32))"'
+        )
         sys.exit(1)
 
 
@@ -166,7 +170,8 @@ async def main() -> None:
         me = await bot.get_me()
         logging.info(
             "Бот @%s запущений. API: %s. Нагадування за налаштуваннями користувачів",
-            me.username, API_URL,
+            me.username,
+            API_URL,
         )
 
         # Нагадування живуть в окремій задачі, паралельно з polling —

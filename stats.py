@@ -53,8 +53,12 @@ def current_streak(days: set[date], today: date) -> int:
 
 
 def compute(
-    days: list[date], today: date, *, weekdays: list[int] | None = None,
-    start_date: date | None = None, archived_at: date | None = None,
+    days: list[date],
+    today: date,
+    *,
+    weekdays: list[int] | None = None,
+    start_date: date | None = None,
+    archived_at: date | None = None,
 ) -> dict:
     """Зібрати всі показники разом."""
     # set замість list з двох причин: прибирає можливі дублікати
@@ -64,8 +68,10 @@ def compute(
     scheduled_weekdays = set(range(7) if weekdays is None else weekdays)
     end = min(today, archived_at) if archived_at else today
     completed = {
-        day for day in unique
-        if day <= end and (start_date is None or day >= start_date)
+        day
+        for day in unique
+        if day <= end
+        and (start_date is None or day >= start_date)
         and day.weekday() in scheduled_weekdays
     }
     runs: dict[date, int] = {}

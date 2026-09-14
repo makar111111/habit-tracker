@@ -135,7 +135,12 @@ def test_destination_with_existing_sqlite_sidecar_is_rejected(tmp_path, suffix):
 
 def test_cli_requires_explicit_source_and_destination():
     backups = importlib.import_module("backups")
-    for arguments in [[], ["backup"], ["restore"], ["backup", "--source", "named.sqlite3"]]:
+    for arguments in [
+        [],
+        ["backup"],
+        ["restore"],
+        ["backup", "--source", "named.sqlite3"],
+    ]:
         with pytest.raises(SystemExit) as error:
             backups.main(arguments)
         assert error.value.code == 2
@@ -148,8 +153,18 @@ def test_cli_backup_then_restore(tmp_path, capsys):
     restored = tmp_path / "restored.sqlite3"
     make_database(source)
 
-    assert backups.main(["backup", "--source", str(source), "--destination", str(snapshot)]) == 0
-    assert backups.main(["restore", "--source", str(snapshot), "--destination", str(restored)]) == 0
+    assert (
+        backups.main(
+            ["backup", "--source", str(source), "--destination", str(snapshot)]
+        )
+        == 0
+    )
+    assert (
+        backups.main(
+            ["restore", "--source", str(snapshot), "--destination", str(restored)]
+        )
+        == 0
+    )
     assert rows(restored) == rows(source)
     assert str(restored) in capsys.readouterr().out
 
@@ -160,15 +175,24 @@ def test_daily_snapshot_is_once_per_day_without_overwrite(tmp_path):
     make_database(source)
     engine = create_engine(f"sqlite:///{source.as_posix()}")
     try:
-        first = backups.daily_backup(engine, tmp_path / "snapshots", today=date(2026, 9, 12))
+        first = backups.daily_backup(
+            engine, tmp_path / "snapshots", today=date(2026, 9, 12)
+        )
         assert first is not None
         assert rows(first) == [(7, "початкові дані")]
         with closing(sqlite3.connect(source)) as connection:
             connection.execute("INSERT INTO example VALUES (8, 'наступний день')")
             connection.commit()
-        assert backups.daily_backup(engine, tmp_path / "snapshots", today=date(2026, 9, 12)) is None
+        assert (
+            backups.daily_backup(
+                engine, tmp_path / "snapshots", today=date(2026, 9, 12)
+            )
+            is None
+        )
         assert rows(first) == [(7, "початкові дані")]
-        second = backups.daily_backup(engine, tmp_path / "snapshots", today=date(2026, 9, 13))
+        second = backups.daily_backup(
+            engine, tmp_path / "snapshots", today=date(2026, 9, 13)
+        )
         assert second is not None
         assert rows(second) == rows(source)
     finally:
@@ -192,10 +216,14 @@ def test_daily_snapshot_does_not_accept_corrupt_existing_copy(tmp_path, content)
     make_database(source)
     engine = create_engine(f"sqlite:///{source.as_posix()}")
     try:
-        snapshot = backups.daily_backup(engine, tmp_path / "snapshots", today=date(2026, 9, 12))
+        snapshot = backups.daily_backup(
+            engine, tmp_path / "snapshots", today=date(2026, 9, 12)
+        )
         snapshot.write_bytes(content)
         with pytest.raises((sqlite3.DatabaseError, ValueError)):
-            backups.daily_backup(engine, tmp_path / "snapshots", today=date(2026, 9, 12))
+            backups.daily_backup(
+                engine, tmp_path / "snapshots", today=date(2026, 9, 12)
+            )
         assert snapshot.read_bytes() == content
     finally:
         engine.dispose()
@@ -246,7 +274,10 @@ backups.backup_database(sys.argv[1], sys.argv[2])
     environment = dict(os.environ, PYTHON_DOTENV_DISABLED="1", DATABASE_URL="sqlite://")
     result = subprocess.run(
         [sys.executable, "-c", code, str(source), str(destination)],
-        cwd=Path(__file__).parent, env=environment, capture_output=True, timeout=15,
+        cwd=Path(__file__).parent,
+        env=environment,
+        capture_output=True,
+        timeout=15,
     )
     assert result.returncode == 17, result.stderr.decode(errors="replace")
     assert not destination.exists()
@@ -256,9 +287,14 @@ backups.backup_database(sys.argv[1], sys.argv[2])
 
     engine = create_engine(f"sqlite:///{source.as_posix()}")
     try:
-        assert backups.daily_backup(engine, directory, today=date(2026, 9, 12)) == destination
+        assert (
+            backups.daily_backup(engine, directory, today=date(2026, 9, 12))
+            == destination
+        )
         assert rows(destination) == rows(source)
-        assert leftovers[0].read_bytes() == b"partial snapshot"  # не наше поточне staging
+        assert (
+            leftovers[0].read_bytes() == b"partial snapshot"
+        )  # не наше поточне staging
         assert backups.daily_backup(engine, directory, today=date(2026, 9, 12)) is None
     finally:
         engine.dispose()

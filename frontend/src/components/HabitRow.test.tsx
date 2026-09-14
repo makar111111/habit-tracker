@@ -15,7 +15,14 @@ import { HabitRow } from "./HabitRow";
 const TODAY = new Date(2026, 8, 12);
 
 const item: HabitWithStats = {
-  habit: { id: 7, name: "Йога", description: "", start_date: "2026-01-01", weekdays: [0, 1, 2, 3, 4, 5, 6], archived_at: null },
+  habit: {
+    id: 7,
+    name: "Йога",
+    description: "",
+    start_date: "2026-01-01",
+    weekdays: [0, 1, 2, 3, 4, 5, 6],
+    archived_at: null,
+  },
   stats: {
     habit_id: 7,
     total: 88,
@@ -72,7 +79,11 @@ describe("Календар просить лише потрібний періо
 
 it("повторне натискання та календар блокуються до завершення запису", async () => {
   let finish!: (value: boolean) => void;
-  vi.spyOn(client, "checkIn").mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+  vi.spyOn(client, "checkIn").mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
   renderRow();
   await userEvent.click(screen.getByLabelText("Показати історію та дії"));
   await screen.findByRole("group", { name: "Відмітки за датами" });
@@ -92,9 +103,7 @@ describe("Помилка дії видима", () => {
     // фронтенду помилки мутацій не показувалися НІДЕ. Галочка
     // оптимістично вмикалась і мовчки відскакувала назад — людина
     // не мала жодного способу зрозуміти, що сталося.
-    vi.spyOn(client, "checkIn").mockRejectedValue(
-      new ApiError(500, "База даних недоступна"),
-    );
+    vi.spyOn(client, "checkIn").mockRejectedValue(new ApiError(500, "База даних недоступна"));
 
     renderRow();
 

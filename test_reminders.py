@@ -69,26 +69,49 @@ def test_next_run_at_respects_custom_hour():
         ("Europe/Kyiv", 20, "2026-09-12", NOW, None),
         ("Europe/Kyiv", 20, "2026-09-13", NOW, None),
         ("Europe/Kyiv", 20, "2026-09-11", NOW, date(2026, 9, 12)),
-        ("America/New_York", 20, None,
-         datetime(2026, 9, 12, 0, tzinfo=timezone.utc), date(2026, 9, 11)),
+        (
+            "America/New_York",
+            20,
+            None,
+            datetime(2026, 9, 12, 0, tzinfo=timezone.utc),
+            date(2026, 9, 11),
+        ),
         # Перехід на літній час пропустив 03:00: нагадуємо о 04:00.
-        ("Europe/Kyiv", 3, None,
-         datetime(2026, 3, 29, 1, tzinfo=timezone.utc), date(2026, 3, 29)),
+        (
+            "Europe/Kyiv",
+            3,
+            None,
+            datetime(2026, 3, 29, 1, tzinfo=timezone.utc),
+            date(2026, 3, 29),
+        ),
         # Повторена осіння година не надсилає друге нагадування.
-        ("Europe/Kyiv", 3, "2026-10-25",
-         datetime(2026, 10, 25, 1, tzinfo=timezone.utc), None),
+        (
+            "Europe/Kyiv",
+            3,
+            "2026-10-25",
+            datetime(2026, 10, 25, 1, tzinfo=timezone.utc),
+            None,
+        ),
     ],
 )
 def test_reminder_day_uses_personal_schedule(zone, hour, last_day, now, expected):
-    target = {"telegram_id": OLENA, "timezone": zone, "reminder_hour": hour,
-              "last_reminder_day": last_day}
+    target = {
+        "telegram_id": OLENA,
+        "timezone": zone,
+        "reminder_hour": hour,
+        "last_reminder_day": last_day,
+    }
 
     assert reminders.reminder_day(target, now) == expected
 
 
 def test_reminder_day_rejects_naive_clock():
-    target = {"telegram_id": OLENA, "timezone": "Europe/Kyiv",
-              "reminder_hour": 20, "last_reminder_day": None}
+    target = {
+        "telegram_id": OLENA,
+        "timezone": "Europe/Kyiv",
+        "reminder_hour": 20,
+        "last_reminder_day": None,
+    }
 
     with pytest.raises(ValueError, match="timezone|пояс"):
         reminders.reminder_day(target, datetime(2026, 9, 12, 20))
@@ -286,8 +309,12 @@ async def test_send_reminders_text_names_the_undone_habit(api: HabitsAPI):
 async def test_send_reminders_respects_personal_hour_and_timezone(api: HabitsAPI):
     await api.create_habit(OLENA, "Йога")
     await api.create_habit(IHOR, "Біг")
-    response = await api._request("PATCH", "/users/me", IHOR,
-                                  json={"timezone": "America/New_York", "reminder_hour": 20})
+    response = await api._request(
+        "PATCH",
+        "/users/me",
+        IHOR,
+        json={"timezone": "America/New_York", "reminder_hour": 20},
+    )
     assert response.status_code == 200
 
     bot = FakeBot()
@@ -298,8 +325,9 @@ async def test_send_reminders_respects_personal_hour_and_timezone(api: HabitsAPI
 
 async def test_send_reminders_excludes_disabled_users(api: HabitsAPI):
     await api.create_habit(OLENA, "Йога")
-    response = await api._request("PATCH", "/users/me", OLENA,
-                                  json={"reminders_enabled": False})
+    response = await api._request(
+        "PATCH", "/users/me", OLENA, json={"reminders_enabled": False}
+    )
     assert response.status_code == 200
 
     bot = FakeBot()
@@ -316,11 +344,17 @@ async def test_reminder_lists_only_habits_planned_for_local_day(api: HabitsAPI):
         ("Відпочинок", {"weekdays": [0, 2, 4]}),
         ("Архів", {}),
     ]:
-        response = await api._request("POST", "/habits", OLENA, json={"name": name, **fields})
+        response = await api._request(
+            "POST", "/habits", OLENA, json={"name": name, **fields}
+        )
         assert response.status_code == 201, response.text
         if name == "Архів":
-            response = await api._request("PATCH", f"/habits/{response.json()['id']}",
-                                          OLENA, json={"archived": True})
+            response = await api._request(
+                "PATCH",
+                f"/habits/{response.json()['id']}",
+                OLENA,
+                json={"archived": True},
+            )
             assert response.status_code == 200, response.text
 
     assert await undone_habit_names(api, OLENA) == ["Щодня", "За розкладом"]
@@ -334,8 +368,9 @@ async def test_reminder_lists_only_habits_planned_for_local_day(api: HabitsAPI):
 
 
 async def test_rest_day_does_not_consume_reminder_day(api: HabitsAPI):
-    response = await api._request("POST", "/habits", OLENA,
-                                  json={"name": "Йога", "weekdays": [0]})
+    response = await api._request(
+        "POST", "/habits", OLENA, json={"name": "Йога", "weekdays": [0]}
+    )
     assert response.status_code == 201, response.text
 
     bot = FakeBot()
@@ -345,7 +380,9 @@ async def test_rest_day_does_not_consume_reminder_day(api: HabitsAPI):
     assert (await api.list_reminder_targets())[0]["last_reminder_day"] is None
 
 
-async def test_sent_reminder_survives_restart_and_next_day_is_due(api: HabitsAPI, monkeypatch):
+async def test_sent_reminder_survives_restart_and_next_day_is_due(
+    api: HabitsAPI, monkeypatch
+):
     await api.create_habit(OLENA, "Йога")
     first_bot = FakeBot()
     await send_reminders(first_bot, api, now=NOW)
@@ -362,14 +399,18 @@ async def test_sent_reminder_survives_restart_and_next_day_is_due(api: HabitsAPI
     assert (await api.list_reminder_targets())[0]["last_reminder_day"] == "2026-09-13"
 
 
-async def test_timezone_change_to_previous_day_does_not_repeat_reminder(api: HabitsAPI, monkeypatch):
+async def test_timezone_change_to_previous_day_does_not_repeat_reminder(
+    api: HabitsAPI, monkeypatch
+):
     now = datetime(2026, 9, 12, 23, tzinfo=timezone.utc)
     monkeypatch.setattr(calendar_rules, "now_utc", lambda: now)
-    response = await api._request("POST", "/habits", OLENA,
-                                  json={"name": "Йога", "start_date": "2026-09-01"})
+    response = await api._request(
+        "POST", "/habits", OLENA, json={"name": "Йога", "start_date": "2026-09-01"}
+    )
     assert response.status_code == 201, response.text
-    response = await api._request("PATCH", "/users/me", OLENA,
-                                  json={"reminder_hour": 0})
+    response = await api._request(
+        "PATCH", "/users/me", OLENA, json={"reminder_hour": 0}
+    )
     assert response.status_code == 200, response.text
 
     first_bot = FakeBot()
@@ -377,8 +418,9 @@ async def test_timezone_change_to_previous_day_does_not_repeat_reminder(api: Hab
     assert len(first_bot.sent) == 1
     assert (await api.list_reminder_targets())[0]["last_reminder_day"] == "2026-09-13"
 
-    response = await api._request("PATCH", "/users/me", OLENA,
-                                  json={"timezone": "America/New_York"})
+    response = await api._request(
+        "PATCH", "/users/me", OLENA, json={"timezone": "America/New_York"}
+    )
     assert response.status_code == 200, response.text
     assert await api.today(OLENA) == date(2026, 9, 12)
     assert await undone_habit_names(api, OLENA) == ["Йога"]
@@ -402,7 +444,9 @@ async def test_failed_delivery_is_retried_without_ack(api: HabitsAPI):
     assert (await api.list_reminder_targets())[0]["last_reminder_day"] == "2026-09-12"
 
 
-async def test_ack_failure_is_logged_and_does_not_stop_others(api: HabitsAPI, monkeypatch, caplog):
+async def test_ack_failure_is_logged_and_does_not_stop_others(
+    api: HabitsAPI, monkeypatch, caplog
+):
     from bot.api import ApiUnavailable
 
     await api.create_habit(OLENA, "Йога")
@@ -425,7 +469,9 @@ async def test_ack_failure_is_logged_and_does_not_stop_others(api: HabitsAPI, mo
     assert "повтор" in caplog.text.lower()
 
 
-async def test_one_user_api_failure_does_not_stop_reminders(api: HabitsAPI, monkeypatch):
+async def test_one_user_api_failure_does_not_stop_reminders(
+    api: HabitsAPI, monkeypatch
+):
     from bot.api import ApiUnavailable
 
     await api.create_habit(OLENA, "Йога")

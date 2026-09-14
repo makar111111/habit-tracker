@@ -12,7 +12,9 @@ def local_day(timezone_name: str) -> date:
     return now_utc().astimezone(ZoneInfo(timezone_name)).date()
 
 
-def previous_scheduled(day: date, weekdays: set[int], *, inclusive: bool = False) -> date | None:
+def previous_scheduled(
+    day: date, weekdays: set[int], *, inclusive: bool = False
+) -> date | None:
     """Найближчий запланований день; пошук обмежений одним тижнем."""
     if not weekdays:
         return None

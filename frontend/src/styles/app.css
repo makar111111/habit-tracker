@@ -12,10 +12,16 @@ body {
   padding-right: max(1rem, env(safe-area-inset-right));
   background: var(--bg);
   color: var(--text);
-  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font:
+    16px/1.5 system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
   /* Перехід кольору при зміні теми: без нього перемикач спрацьовує
      різким миготінням, з ним — м'яким переливом. */
-  transition: background var(--speed), color var(--speed);
+  transition:
+    background var(--speed),
+    color var(--speed);
 }
 
 .shell {
@@ -63,7 +69,9 @@ body {
   color: var(--text);
   font-size: 1.05rem;
   cursor: pointer;
-  transition: background var(--speed), border-color var(--speed);
+  transition:
+    background var(--speed),
+    border-color var(--speed);
 }
 
 .icon-button:hover {
@@ -113,7 +121,9 @@ body {
   color: var(--muted);
   font: inherit;
   cursor: pointer;
-  transition: color var(--speed), border-color var(--speed);
+  transition:
+    color var(--speed),
+    border-color var(--speed);
 }
 
 .tab:hover {
@@ -290,7 +300,10 @@ body {
   background: var(--card);
   font-size: 1.2rem;
   cursor: pointer;
-  transition: background var(--speed), border-color var(--speed), transform var(--speed);
+  transition:
+    background var(--speed),
+    border-color var(--speed),
+    transform var(--speed);
 }
 
 .check:hover:not(:disabled) {
@@ -347,7 +360,10 @@ body {
   font: inherit;
   font-size: 0.95rem;
   cursor: pointer;
-  transition: background var(--speed), color var(--speed), border-color var(--speed);
+  transition:
+    background var(--speed),
+    color var(--speed),
+    border-color var(--speed);
 }
 
 .ghost-button:hover {
@@ -487,12 +503,7 @@ body {
 .skeleton {
   height: 76px;
   border-radius: var(--radius);
-  background: linear-gradient(
-    90deg,
-    var(--card) 25%,
-    var(--card-hover) 50%,
-    var(--card) 75%
-  );
+  background: linear-gradient(90deg, var(--card) 25%, var(--card-hover) 50%, var(--card) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite;
 }
@@ -634,7 +645,9 @@ button:disabled {
   cursor: not-allowed;
 }
 
-.ghost-button:disabled, .link-button:disabled, .check:disabled {
+.ghost-button:disabled,
+.link-button:disabled,
+.check:disabled {
   opacity: 0.55;
 }
 
@@ -658,7 +671,8 @@ button:disabled {
   margin-bottom: 0.65rem;
 }
 
-.weekdays, .settings-fields {
+.weekdays,
+.settings-fields {
   border: 0;
   padding: 0;
   margin: 0;
@@ -796,7 +810,10 @@ button:disabled {
   color: var(--muted);
   font: inherit;
   cursor: pointer;
-  transition: color var(--speed), border-color var(--speed), background var(--speed);
+  transition:
+    color var(--speed),
+    border-color var(--speed),
+    background var(--speed);
 }
 
 .new-habit-toggle:hover,
@@ -873,13 +890,22 @@ button:disabled {
 }
 
 @media (max-width: 520px) {
-  .calendar-navigation span { order: -1; flex-basis: 100%; text-align: center; }
+  .calendar-navigation span {
+    order: -1;
+    flex-basis: 100%;
+    text-align: center;
+  }
 
   /* Назва й опис — на всю ширину: вдвох в один рядок опис обрізався до «необов'язков». */
-  .add-form-main input:not([type="checkbox"]) { flex-basis: 100%; }
+  .add-form-main input:not([type="checkbox"]) {
+    flex-basis: 100%;
+  }
 
   /* Кнопка розгортання — ціль для пальця, а не для курсора. */
-  .expand-button { min-width: 44px; min-height: 44px; }
+  .expand-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
 
   /*
     Вкладки — нижньою панеллю, у зоні великого пальця. Селектор саме по
@@ -933,5 +959,10 @@ button:disabled {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }

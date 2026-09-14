@@ -8,7 +8,12 @@ interface Props {
   emptyMessage?: string;
 }
 
-export function HabitList({ items, isLoading, today, emptyMessage = "Поки що жодної звички. Додай першу вище." }: Props) {
+export function HabitList({
+  items,
+  isLoading,
+  today,
+  emptyMessage = "Поки що жодної звички. Додай першу вище.",
+}: Props) {
   if (isLoading) {
     // Три скелети — приблизно стільки звичок у типового користувача.
     // Сенс не в точності, а в тому, щоб сторінка не стрибала, коли

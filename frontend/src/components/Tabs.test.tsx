@@ -34,8 +34,7 @@ describe("Tabs — ролі", () => {
     expect(active).toHaveAttribute("aria-selected", "true");
     expect(active).toHaveAttribute("aria-controls", "panel-analytics");
 
-    expect(screen.getByRole("tab", { name: "Сьогодні" }))
-      .toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("tab", { name: "Сьогодні" })).toHaveAttribute("aria-selected", "false");
   });
 
   it("у табуляцію потрапляє лише активна вкладка", () => {
@@ -100,7 +99,14 @@ describe("Tabs — клавіатура", () => {
 
 describe("Tabs — іконки нижньої панелі", () => {
   it("іконка не змінює ім'я вкладки для диктора", () => {
-    render(<Tabs items={[{ value: "today", label: "Сьогодні", icon: "✅" }]} value="today" onChange={() => {}} label="Розділи" />);
+    render(
+      <Tabs
+        items={[{ value: "today", label: "Сьогодні", icon: "✅" }]}
+        value="today"
+        onChange={() => {}}
+        label="Розділи"
+      />,
+    );
     // Якби емодзі потрапило в ім'я, диктор читав би «зелена галочка Сьогодні».
     expect(screen.getByRole("tab", { name: "Сьогодні" })).toBeInTheDocument();
   });

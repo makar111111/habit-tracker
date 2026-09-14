@@ -25,11 +25,21 @@ export function NewHabit({ today, empty }: { today: Date; empty: boolean }) {
 
   if (empty) return <AddHabitForm today={today} />;
 
-  return <>
-    <button ref={toggle} type="button" className="new-habit-toggle" aria-expanded={open} aria-controls={open ? FORM_ID : undefined}
-      onClick={() => (open ? close() : setOpen(true))}>
-      <span aria-hidden="true">{open ? "−" : "+"}</span> Нова звичка
-    </button>
-    {open && <AddHabitForm today={today} id={FORM_ID} autoFocus onCreated={close} onCancel={close} />}
-  </>;
+  return (
+    <>
+      <button
+        ref={toggle}
+        type="button"
+        className="new-habit-toggle"
+        aria-expanded={open}
+        aria-controls={open ? FORM_ID : undefined}
+        onClick={() => (open ? close() : setOpen(true))}
+      >
+        <span aria-hidden="true">{open ? "−" : "+"}</span> Нова звичка
+      </button>
+      {open && (
+        <AddHabitForm today={today} id={FORM_ID} autoFocus onCreated={close} onCancel={close} />
+      )}
+    </>
+  );
 }

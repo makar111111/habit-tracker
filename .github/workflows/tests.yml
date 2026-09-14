@@ -32,6 +32,11 @@ jobs:
       - name: Лінтер
         run: python -m ruff check .
 
+      # Хук Claude Code форматує лише те, що редагує Claude. Ця перевірка
+      # ловить код, змінений руками чи в іншому редакторі без форматера.
+      - name: Форматування
+        run: python -m ruff format --check .
+
       - name: Прогнати тести
         run: python -m pytest -q
         env:
@@ -78,6 +83,9 @@ jobs:
       # робить попередження теж провалом, інакше CI їх мовчки пропускав би.
       - name: Лінтер
         run: npm run lint
+
+      - name: Форматування
+        run: npm run format:check
 
       - name: Прогнати тести
         run: npm test

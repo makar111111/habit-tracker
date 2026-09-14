@@ -120,9 +120,7 @@ def test_can_save_cyrillic_name(client: TestClient, bot_headers: Headers):
 # ---------- розділення звичок ----------
 
 
-def test_users_do_not_see_each_others_habits(
-    client: TestClient, bot_headers: Headers
-):
+def test_users_do_not_see_each_others_habits(client: TestClient, bot_headers: Headers):
     """Найважливіший тест файлу: список звичок у кожного свій."""
     client.post("/habits", json={"name": "Йога"}, headers=bot_headers(OLENA))
     client.post("/habits", json={"name": "Біг"}, headers=bot_headers(IHOR))
@@ -134,9 +132,7 @@ def test_users_do_not_see_each_others_habits(
     assert [h["name"] for h in ihor] == ["Біг"]
 
 
-def test_browser_does_not_see_telegram_habits(
-    client: TestClient, bot_headers: Headers
-):
+def test_browser_does_not_see_telegram_habits(client: TestClient, bot_headers: Headers):
     """Локальний користувач вебінтерфейсу — теж окрема людина."""
     client.post("/habits", json={"name": "Йога"}, headers=bot_headers(OLENA))
 

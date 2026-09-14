@@ -121,8 +121,7 @@ async def command_during_dialog(message: Message) -> None:
     скасувати діалог і далі можна.
     """
     await message.answer(
-        "Спершу завершимо створення звички.\n"
-        "Надішли /cancel, якщо передумав."
+        "Спершу завершимо створення звички.\nНадішли /cancel, якщо передумав."
     )
 
 
@@ -169,8 +168,7 @@ async def name_must_be_text(message: Message) -> None:
 
 
 LOST_STATE = (
-    "Цю звичку вже або створено, або діалог перервався. "
-    "Перевір список: /habits"
+    "Цю звичку вже або створено, або діалог перервався. Перевір список: /habits"
 )
 
 # Лок на кожну пару (chat_id, telegram_id). Навіщо: без нього подвійний
@@ -251,7 +249,9 @@ async def got_description(message: Message, state: FSMContext) -> None:
         return
 
     if await ask_schedule(state, message.chat.id, message.from_user.id, description):
-        await message.answer(schedule_prompt(EVERY_DAY), reply_markup=schedule_keyboard(EVERY_DAY))
+        await message.answer(
+            schedule_prompt(EVERY_DAY), reply_markup=schedule_keyboard(EVERY_DAY)
+        )
 
 
 @router.message(NewHabit.description)
@@ -268,8 +268,7 @@ async def description_must_be_text(message: Message) -> None:
     як зависання, навіть коли бот насправді просто чекає іншого вводу.
     """
     await message.answer(
-        'Потрібен текст. Надішли опис словами, натисни «Пропустити» '
-        "або /cancel."
+        "Потрібен текст. Надішли опис словами, натисни «Пропустити» або /cancel."
     )
 
 
@@ -338,7 +337,9 @@ async def changed_schedule(
 
 
 @router.callback_query(NewHabit.weekdays, ScheduleCallback.filter(F.action == "done"))
-async def schedule_done(callback: CallbackQuery, state: FSMContext, api: HabitsAPI) -> None:
+async def schedule_done(
+    callback: CallbackQuery, state: FSMContext, api: HabitsAPI
+) -> None:
     if callback.from_user is None or callback.message is None:
         await callback.answer()
         return

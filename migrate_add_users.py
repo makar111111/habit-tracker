@@ -115,8 +115,7 @@ def main() -> int:
         habits_after = db.execute("SELECT count(*) FROM habit").fetchone()[0]
         checkins_after = db.execute("SELECT count(*) FROM checkin").fetchone()[0]
         orphans = db.execute(
-            "SELECT count(*) FROM checkin "
-            "WHERE habit_id NOT IN (SELECT id FROM habit)"
+            "SELECT count(*) FROM checkin WHERE habit_id NOT IN (SELECT id FROM habit)"
         ).fetchone()[0]
 
         if (habits_after, checkins_after, orphans) != (habits, checkins, 0):

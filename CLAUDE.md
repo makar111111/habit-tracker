@@ -45,11 +45,17 @@ npm run build          # бойова збірка у frontend/dist
 npm test               # тести (Vitest)
 npx tsc --noEmit       # лише перевірка типів
 npm run lint           # ESLint (правила хуків React, заборона export default)
+npm run format         # Prettier: відформатувати весь фронтенд
 ```
 
 Лінтери: `python -m ruff check .` для Python (правила й причини вибору —
 у `ruff.toml`) і `npm run lint` для фронтенду. Обидва запускаються в CI
 і мають проходити так само, як тести.
+
+Форматери: `python -m ruff format .` для Python і `npm run format` для
+фронтенду (налаштування — `frontend/.prettierrc.json`). CI перевіряє
+форматування через `--check`. Коли файл редагує Claude, хук у
+`.claude/settings.json` форматує й лінтить його автоматично.
 
 ## Вхід у вебверсію
 

@@ -100,9 +100,7 @@ def main() -> int:
     # Однакові назви — не помилка й не конфлікт для бази, але майже
     # завжди означає, що людина двічі завела ту саму звичку, не знаючи
     # про першу. Попереджаємо, щоб це не спливло несподівано.
-    duplicates = {n.lower() for _, n, _ in moving} & {
-        n.lower() for _, n, _ in existing
-    }
+    duplicates = {n.lower() for _, n, _ in moving} & {n.lower() for _, n, _ in existing}
     if duplicates:
         print(f"\nУВАГА: однакові назви в обох акаунтах: {sorted(duplicates)}")
         print("Скрипт їх НЕ зливає — після перенесення будуть обидві.")
@@ -134,14 +132,18 @@ def main() -> int:
         if left or len(now) != len(moving) + len(existing) or orphans:
             print("ПОМИЛКА: після міграції дані не збіглися.")
             print(f"  лишилось у локального: {len(left)}")
-            print(f"  стало в цільового: {len(now)}, очікували {len(moving) + len(existing)}")
+            print(
+                f"  стало в цільового: {len(now)}, очікували {len(moving) + len(existing)}"
+            )
             print(f"  відміток-сиріт: {orphans}")
             print(f"Поверни базу з копії: {BACKUP}")
             return 1
 
         moved_checkins = sum(c for _, _, c in now)
-        print(f"\nГотово. У {target_name!r} тепер {len(now)} звичок, "
-              f"{moved_checkins} відміток.")
+        print(
+            f"\nГотово. У {target_name!r} тепер {len(now)} звичок, "
+            f"{moved_checkins} відміток."
+        )
         print("Локальний користувач лишився в базі порожнім — це нормально:")
         print("він знадобиться, якщо колись знову ввімкнеш ALLOW_LOCAL_USER.")
         return 0
