@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.venv/Scripts/python.exe\" \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_edited_file.py\"",
+            "timeout": 60,
+            "statusMessage": "Форматую й лінтю змінений файл..."
+          }
+        ]
+      }
+    ]
+  }
+}
