@@ -6,6 +6,16 @@ import { Calendar } from "./Calendar";
 
 const today = new Date(2026, 8, 12);
 
+describe("Підписи місяців", () => {
+  it("підписує лише перший тиждень кожного місяця", () => {
+    // 6 тижнів до 13 вересня 2026 починаються з понеділка 3 серпня:
+    // п'ять тижнів серпня, потім тиждень із 7 вересня.
+    const { container } = render(<Calendar today={today} weeks={6} doneDays={new Set()} onToggle={vi.fn()} />);
+    const labels = [...container.querySelectorAll(".calendar-months span")].map((span) => span.textContent);
+    expect(labels).toEqual(["сер", "", "", "", "", "вер"]);
+  });
+});
+
 describe("Редагування календаря", () => {
   it("дозволяє ставити та знімати минулі відмітки й блокує майбутні", async () => {
     const onToggle = vi.fn();

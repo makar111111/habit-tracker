@@ -16,13 +16,12 @@ export function Calendar({ doneDays, today, end = today, weeks = CALENDAR_WEEKS,
   habit = {}, disabled = false, onToggle }: Props) {
   const start = gridStart(end, weeks);
   const todayIso = toISO(today);
-  let previousMonth = -1;
+  // Назва місяця — лише над першим тижнем цього місяця: порівнюємо
+  // з понеділком попереднього тижня, а не з лічильником поза map.
   const monthLabels = Array.from({ length: weeks }, (_, week) => {
-    const monday = addDays(start, week * 7);
-    const month = monday.getMonth();
-    const label = month === previousMonth ? "" : MONTH_NAMES[month];
-    previousMonth = month;
-    return label;
+    const month = addDays(start, week * 7).getMonth();
+    const isNewMonth = week === 0 || addDays(start, (week - 1) * 7).getMonth() !== month;
+    return isNewMonth ? MONTH_NAMES[month] : "";
   });
 
   return (

@@ -12,8 +12,8 @@ description: Закомітити зміни в трекері звичок. В�
 2. **Перевір заборонені файли.** У змінах не має бути `.env`, `habits.db` чи `habits.db.*`. Якщо є — зупинись і назви файл.
 
 3. **Прогони перевірки лише для зачеплених частин:**
-   - змінено `*.py` → `PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -m pytest -q`
-   - змінено `frontend/` → у `frontend/`: `npx tsc --noEmit`, потім `npm test -- --run`
+   - змінено `*.py` → `.venv/Scripts/python.exe -m ruff check .`, потім `PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -m pytest -q`
+   - змінено `frontend/` → у `frontend/`: `npx tsc --noEmit`, `npm run lint`, потім `npm test -- --run`
    - змінено лише документацію чи `.github/` → перевірки пропусти, скажи про це
 
 4. **Додай файли поіменно** (`git add <шлях>`), ніколи `git add -A` чи `git add .`.

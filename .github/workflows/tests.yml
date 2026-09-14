@@ -27,6 +27,11 @@ jobs:
       - name: Встановити залежності
         run: pip install -r requirements-dev.txt
 
+      # Лінтер іде ПЕРЕД тестами: він працює за секунду, і невикористаний
+      # імпорт чи невизначене ім'я краще побачити до 40 секунд pytest.
+      - name: Лінтер
+        run: python -m ruff check .
+
       - name: Прогнати тести
         run: python -m pytest -q
         env:
@@ -67,6 +72,12 @@ jobs:
 
       - name: Перевірити типи
         run: npx tsc --noEmit
+
+      # tsc перевіряє типи, а ESLint — те, чого типи не бачать: правила
+      # хуків React і заборону `export default`. --max-warnings 0 у скрипті
+      # робить попередження теж провалом, інакше CI їх мовчки пропускав би.
+      - name: Лінтер
+        run: npm run lint
 
       - name: Прогнати тести
         run: npm test

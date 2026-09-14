@@ -44,11 +44,12 @@ npm run dev            # розробка на :5173, API проксіюєтьс
 npm run build          # бойова збірка у frontend/dist
 npm test               # тести (Vitest)
 npx tsc --noEmit       # лише перевірка типів
+npm run lint           # ESLint (правила хуків React, заборона export default)
 ```
 
-Лінтера в проєкті поки не налаштовано — `flake8`/`ruff` не встановлені.
-Для фронтенду роль лінтера частково виконує `tsc --noEmit`: увімкнено
-`strict`, `noUnusedLocals` і `noUnusedParameters`.
+Лінтери: `python -m ruff check .` для Python (правила й причини вибору —
+у `ruff.toml`) і `npm run lint` для фронтенду. Обидва запускаються в CI
+і мають проходити так само, як тести.
 
 ## Вхід у вебверсію
 
@@ -96,8 +97,8 @@ python migrate_merge_local_user.py --apply    # виконати (робить �
 через `MutationObserver`, щоб графіки перефарбувалися при зміні теми.
 
 7. **У фронтенді — тільки іменовані експорти** (як і в глобальних
-правилах). Виняток єдиний і вимушений: `vite.config.ts`, бо Vite читає
-саме `default`. Там, де стороння бібліотека вимагає `default` —
+правилах). Винятки вимушені: `vite.config.ts` і `eslint.config.js`, бо
+інструменти читають саме `default`. Правило перевіряє ESLint. Там, де стороння бібліотека вимагає `default` —
 наприклад `React.lazy` — місток пишеться явно:
 `lazy(() => import("...").then((m) => ({ default: m.НазваКомпонента })))`.
 

@@ -64,6 +64,10 @@ export function LoginScreen({ onSuccess }: Props) {
   }
 
   function poll(data: LoginCode) {
+    // poll викликається лише з обробника кліку (start), не під час рендеру.
+    // Правило purity цього не бачить: для нього будь-яка функція в тілі
+    // компонента — потенційно частина рендеру.
+    // eslint-disable-next-line react-hooks/purity
     const deadline = Date.now() + data.expires_in * 1000;
 
     timerRef.current = window.setInterval(async () => {

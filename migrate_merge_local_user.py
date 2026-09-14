@@ -87,14 +87,14 @@ def main() -> int:
     print(f"Куди: {target_name!r} (telegram_id={target_tg})\n")
     print("Переносимо:")
     total_checkins = 0
-    for hid, name, count in moving:
+    for _hid, name, count in moving:
         total_checkins += count
         print(f"  • {name!r} — {count} відміток")
     print(f"\nРазом: {len(moving)} звичок, {total_checkins} відміток")
 
     if existing:
         print("\nУже є в цьому акаунті:")
-        for hid, name, count in existing:
+        for _hid, name, count in existing:
             print(f"  • {name!r} — {count} відміток")
 
     # Однакові назви — не помилка й не конфлікт для бази, але майже

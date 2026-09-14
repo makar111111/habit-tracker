@@ -493,7 +493,7 @@ def create_checkin(
         # Той самий UNIQUE, який README називає "останньою лінією
         # захисту", тут і спрацьовує — просто треба зловити його гідно.
         session.rollback()
-        raise HTTPException(status_code=409, detail="Цей день уже відмічено")
+        raise HTTPException(status_code=409, detail="Цей день уже відмічено") from None
 
     session.refresh(checkin)
     return checkin
