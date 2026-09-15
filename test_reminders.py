@@ -252,13 +252,16 @@ class FakeBot:
 
     def __init__(self):
         self.sent: list[tuple[int, str]] = []
+        self.markups: list = []
         self.fail_for: set[int] = set()
 
-    async def send_message(self, chat_id: int, text: str) -> None:
+    async def send_message(self, chat_id: int, text: str, reply_markup=None) -> None:
         if chat_id in self.fail_for:
             # Найчастіша причина в реальності — людина заблокувала бота.
             raise RuntimeError("simulated: заблокував бота")
         self.sent.append((chat_id, text))
+        # Окремим списком, щоб старі перевірки (chat_id, text) лишились як були.
+        self.markups.append(reply_markup)
 
 
 async def test_send_reminders_only_to_users_with_undone_habits(api: HabitsAPI):
@@ -304,6 +307,28 @@ async def test_send_reminders_text_names_the_undone_habit(api: HabitsAPI):
     chat_id, text = bot.sent[0]
     assert chat_id == OLENA
     assert "Пити воду" in text
+
+
+async def test_send_reminders_attaches_buttons_for_undone_habits(api: HabitsAPI):
+    """Відмітити можна прямо з нагадування — без набору /habits."""
+    yoga = await api.create_habit(OLENA, "Йога")
+    reading = await api.create_habit(OLENA, "Читати")
+    await api.check_in(OLENA, yoga["id"])
+
+    bot = FakeBot()
+    await send_reminders(bot, api, now=NOW)
+
+    (markup,) = bot.markups
+    buttons = [button for row in markup.inline_keyboard for button in row]
+    assert [button.text for button in buttons] == ["⬜ Читати", "📋 Усі звички"]
+    # NOW — 17:00 UTC, тобто 20:00 за Києвом 12 вересня: саме цей день
+    # і має бути зашитий у кнопку, а не «сьогодні» на момент натискання.
+    assert buttons[0].callback_data == f"rem:{reading['id']}:2026-09-12"
+
+
+def test_reminder_text_for_empty_list_says_all_done():
+    """Після останньої відмітки з кнопок нагадування перемальовується так."""
+    assert "Усе відмічено" in reminder_text([])
 
 
 async def test_send_reminders_respects_personal_hour_and_timezone(api: HabitsAPI):

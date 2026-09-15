@@ -15,6 +15,7 @@ from aiogram import Bot
 from aiogram.utils.text_decorations import html_decoration
 
 from bot.api import ApiError, HabitsAPI
+from bot.keyboards import reminder_keyboard
 from bot.plural import plural
 from bot.schedule import is_planned_on
 from config import REMINDER_HOUR
@@ -63,13 +64,18 @@ def pluralize_habits(count: int) -> str:
     return plural(count, "звичку", "звички", "звичок")
 
 
+REMINDER_ALL_DONE = "Нагадування 🔔\n\nУсе відмічено 🎉"
+
+
 def reminder_text(names: list[str]) -> str:
     """Текст нагадування зі списком невідміченого.
 
-    Порожній список сюди подавати не варто — це означає «нагадувати
-    нема про що», і викликач (send_reminders) відсіює такий випадок
-    заздалегідь, до мережевого виклику.
+    Порожній список означає «нагадувати нема про що»: send_reminders
+    відсіює його ще до надсилання, а після відміток із кнопок нагадування
+    перемальовується на REMINDER_ALL_DONE.
     """
+    if not names:
+        return REMINDER_ALL_DONE
     listed = "\n".join(f"• {html_decoration.quote(name)}" for name in names)
     return (
         f"Нагадування 🔔\n\n"
@@ -78,17 +84,24 @@ def reminder_text(names: list[str]) -> str:
     )
 
 
-async def undone_habit_names(
+async def undone_habits(
     api: HabitsAPI, telegram_id: int, day: date | None = None
-) -> list[str]:
+) -> list[dict]:
     """Невідмічені звички, заплановані на місцевий день людини."""
     habits = await api.habits_with_stats(telegram_id)
     return [
-        habit["name"]
+        habit
         for habit in habits
         if (is_planned_on(habit, day) if day else habit.get("due_today", True))
         and not (habit.get("stats") or {}).get("done_today")
     ]
+
+
+async def undone_habit_names(
+    api: HabitsAPI, telegram_id: int, day: date | None = None
+) -> list[str]:
+    """Лише назви невідміченого — для тексту нагадування."""
+    return [habit["name"] for habit in await undone_habits(api, telegram_id, day)]
 
 
 async def send_reminders(
@@ -122,18 +135,25 @@ async def send_reminders(
             continue
 
         try:
-            names = await undone_habit_names(api, telegram_id, day)
+            habits = await undone_habits(api, telegram_id, day)
         except ApiError:
             logging.warning("Не вдалося перевірити звички користувача %s", telegram_id)
             continue
 
-        if not names:
+        if not habits:
             # Усе вже відмічено — нагадувати нема про що, і мовчання
             # тут не поломка, а правильна поведінка.
             continue
 
         try:
-            await bot.send_message(telegram_id, reminder_text(names))
+            # Кнопки прямо під нагадуванням: відмітити можна одним дотиком,
+            # не набираючи /habits. Назви лишаються і в тексті — у
+            # пуш-сповіщенні на заблокованому екрані кнопок не видно.
+            await bot.send_message(
+                telegram_id,
+                reminder_text([habit["name"] for habit in habits]),
+                reply_markup=reminder_keyboard(habits, day),
+            )
         except Exception:
             # Найчастіша причина — людина заблокувала бота чи видалила
             # акаунт. Це не наша помилка, і вона не має рвати розсилку

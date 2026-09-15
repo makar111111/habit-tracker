@@ -5,6 +5,8 @@
 Різниця між «навчальним ботом» і тим, яким справді користуються.
 """
 
+from datetime import date
+
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -36,6 +38,21 @@ class HabitCallback(CallbackData, prefix="habit"):
 
     action: str
     habit_id: int
+
+
+class ReminderCallback(CallbackData, prefix="rem"):
+    """Кнопка звички під нагадуванням: відмітити за КОНКРЕТНИЙ день.
+
+    Окремо від HabitCallback, бо тут є день. Нагадування надіслане
+    ввечері може бути натиснуте вже після опівночі — і тоді «сьогодні»
+    сервера означало б наступний день, а не той, про який нагадували.
+
+    День рядком ISO ("2026-09-15"): CallbackData вміє лише прості типи,
+    а разом із префіксом і id це ~20 байтів із дозволених 64.
+    """
+
+    habit_id: int
+    day: str
 
 
 class MenuCallback(CallbackData, prefix="menu"):
@@ -130,6 +147,39 @@ def habits_keyboard(habits: list[dict]) -> InlineKeyboardMarkup:
     # скласти їх по кілька, і довгі назви перетворилися б на кашу.
     builder.adjust(1)
     return builder.as_markup()
+
+
+def reminder_keyboard(habits: list[dict], day: date) -> InlineKeyboardMarkup:
+    """Невідмічені звички під нагадуванням + вихід до повного списку."""
+    builder = InlineKeyboardBuilder()
+
+    for habit in habits:
+        builder.button(
+            text=f"⬜ {shorten(habit['name'])}",
+            callback_data=ReminderCallback(habit_id=habit["id"], day=day.isoformat()),
+        )
+
+    builder.button(text="📋 Усі звички", callback_data=MenuCallback(action="habits"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def reminder_habit_ids(markup: InlineKeyboardMarkup | None) -> list[int]:
+    """Які звички ще лишились кнопками під нагадуванням.
+
+    Стан «що вже відмічено з цього нагадування» ніде не зберігаємо —
+    він і так записаний у самій клавіатурі повідомлення. Кнопку
+    відміченої звички прибираємо, тож що лишилось, те й не відмічено.
+    """
+    if markup is None:
+        return []
+    ids = []
+    for row in markup.inline_keyboard:
+        for button in row:
+            data = button.callback_data or ""
+            if data.startswith(f"{ReminderCallback.__prefix__}:"):
+                ids.append(ReminderCallback.unpack(data).habit_id)
+    return ids
 
 
 def manage_keyboard(habits: list[dict]) -> InlineKeyboardMarkup:

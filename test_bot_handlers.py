@@ -1149,6 +1149,142 @@ def test_toggle_day_keeps_list_sorted():
     assert toggle_day([0, 2, 4], 2) == [0, 4]
 
 
+# ---------- кнопки під нагадуванням ----------
+
+
+async def tap_reminder(tg: BotUnderTest, habit_id: int, day: str, markup) -> None:
+    """Натискання кнопки під нагадуванням.
+
+    На відміну від tap(), повідомлення тут несе клавіатуру: обробник
+    дізнається з неї, які звички ще лишились невідміченими.
+    """
+    tg._update_id += 1
+    tg.bot.session.sent.clear()
+    await tg.feed(
+        Update(
+            update_id=tg._update_id,
+            callback_query=CallbackQuery(
+                id=str(tg._update_id),
+                from_user=USER,
+                chat_instance="test",
+                data=f"rem:{habit_id}:{day}",
+                message=Message(
+                    message_id=tg._update_id,
+                    date=datetime.now(),
+                    chat=CHAT,
+                    text="нагадування",
+                    reply_markup=markup,
+                ),
+            ),
+        )
+    )
+
+
+async def checkin_days(tg: BotUnderTest, habit_id: int) -> list[str]:
+    response = await tg.api._request("GET", f"/habits/{habit_id}/checkins", USER.id)
+    return [item["day"] for item in response.json()]
+
+
+async def test_reminder_button_marks_and_removes_habit(tg: BotUnderTest):
+    from bot.keyboards import reminder_keyboard
+
+    yoga = await tg.api.create_habit(USER.id, "Йога")
+    reading = await tg.api.create_habit(USER.id, "Читати")
+    today = await tg.api.today(USER.id)
+    markup = reminder_keyboard([yoga, reading], today)
+
+    await tap_reminder(tg, yoga["id"], today.isoformat(), markup)
+
+    assert await checkin_days(tg, yoga["id"]) == [today.isoformat()]
+    assert tg.sent[0] == ("Alert", "Відмічено 🔥", [])
+    kind, text, buttons = tg.sent[1]
+    assert kind == "EditMessageText"
+    # Відмічена звичка зникає і з тексту, і з кнопок; решта лишається.
+    assert "Читати" in text and "Йога" not in text
+    assert buttons == ["⬜ Читати", "📋 Усі звички"]
+
+
+async def test_last_reminder_button_says_all_done(tg: BotUnderTest):
+    from bot.keyboards import reminder_keyboard
+
+    yoga = await tg.api.create_habit(USER.id, "Йога")
+    today = await tg.api.today(USER.id)
+
+    await tap_reminder(
+        tg, yoga["id"], today.isoformat(), reminder_keyboard([yoga], today)
+    )
+
+    _, text, buttons = tg.sent[1]
+    assert "Усе відмічено" in text
+    assert buttons == ["📋 Усі звички"]
+
+
+async def test_second_tap_on_reminder_does_not_unmark(tg: BotUnderTest):
+    """Нагадування просить «зроби» — повторний дотик не знімає відмітку.
+
+    Стара клавіатура (кнопка ще на місці) — так буває, коли людина тисне
+    двічі швидше, ніж Telegram встиг перемалювати повідомлення.
+    """
+    from bot.keyboards import reminder_keyboard
+
+    yoga = await tg.api.create_habit(USER.id, "Йога")
+    today = await tg.api.today(USER.id)
+    markup = reminder_keyboard([yoga], today)
+
+    await tap_reminder(tg, yoga["id"], today.isoformat(), markup)
+    await tap_reminder(tg, yoga["id"], today.isoformat(), markup)
+
+    assert tg.sent[0] == ("Alert", "Уже відмічено ✅", [])
+    assert await checkin_days(tg, yoga["id"]) == [today.isoformat()]
+
+
+async def test_reminder_button_after_midnight_marks_reminder_day(
+    tg: BotUnderTest, monkeypatch
+):
+    """Нагадування за 12 вересня, натиснуте о 00:30 13-го за Києвом.
+
+    Звичайна кнопка відмітила б «сьогодні» сервера — тобто 13-те.
+    А людина відповідала на нагадування про 12-те, і саме його пропустила.
+    """
+    from bot.keyboards import reminder_keyboard
+
+    monkeypatch.setattr(
+        calendar_rules,
+        "now_utc",
+        lambda: datetime(2026, 9, 12, 21, 30, tzinfo=timezone.utc),
+    )
+    yoga = await tg.api.create_habit(USER.id, "Йога")
+    assert (await tg.api.today(USER.id)).isoformat() == "2026-09-13"
+
+    await tap_reminder(
+        tg, yoga["id"], "2026-09-12", reminder_keyboard([yoga], date(2026, 9, 12))
+    )
+
+    assert await checkin_days(tg, yoga["id"]) == ["2026-09-12"]
+
+
+async def test_forged_reminder_day_is_answered_without_checkin(tg: BotUnderTest):
+    yoga = await tg.api.create_habit(USER.id, "Йога")
+
+    await tap_reminder(tg, yoga["id"], "not-a-day", None)
+
+    assert [kind for kind, _, _ in tg.sent] == ["Alert"]
+    assert "неактуальна" in tg.texts[0]
+    assert await checkin_days(tg, yoga["id"]) == []
+
+
+async def test_reminder_button_on_foreign_habit_changes_nothing(tg: BotUnderTest):
+    """id звички в кнопці теж від клієнта: чужу звичку відмітити не можна."""
+    foreign = await tg.api.create_habit(9999, "Чужа")
+    today = await tg.api.today(USER.id)
+
+    await tap_reminder(tg, foreign["id"], today.isoformat(), None)
+
+    response = await tg.api._request("GET", f"/habits/{foreign['id']}/checkins", 9999)
+    assert response.json() == []
+    assert [kind for kind, _, _ in tg.sent] == ["Alert"]
+
+
 # ---------- донати в Stars (/support) ----------
 
 

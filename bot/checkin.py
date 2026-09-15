@@ -1,12 +1,20 @@
 """Натискання кнопки звички: відмітити або скасувати відмітку."""
 
+from datetime import date
+
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from bot.api import HabitsAPI
-from bot.keyboards import HabitCallback
+from bot.keyboards import (
+    HabitCallback,
+    ReminderCallback,
+    reminder_habit_ids,
+    reminder_keyboard,
+)
+from bot.reminders import reminder_text
 from bot.views import habits_view
 
 router = Router(name="checkin")
@@ -106,6 +114,68 @@ async def toggle_checkin(
         # Telegram відмовляється зберігати повідомлення, якщо воно
         # анітрохи не змінилося. Для нас це не проблема: на екрані
         # і так уже те, що треба.
+        if "message is not modified" not in str(error):
+            raise
+
+
+@router.callback_query(ReminderCallback.filter())
+async def check_in_from_reminder(
+    callback: CallbackQuery, callback_data: ReminderCallback, api: HabitsAPI
+) -> None:
+    """Відмітка прямо з нагадування — за день, про який воно нагадувало.
+
+    На відміну від toggle_checkin, тут лише ВІДМІЧАЄМО, а не перемикаємо:
+    нагадування просить «зроби», і випадковий другий дотик не має
+    мовчки знімати щойно поставлену відмітку. Зняти — у /habits.
+
+    Перевірки «посеред діалогу» тут немає навмисно: toggle_checkin
+    відмовляє, бо малює звичайний список, який виглядає як кінець
+    діалогу. Нагадування ж перемальовується саме в себе — жодного
+    хибного сигналу людині, тож і забороняти нічого.
+    """
+    if callback.from_user is None:
+        return
+
+    try:
+        day = date.fromisoformat(callback_data.day)
+    except ValueError:
+        # Дані кнопки шле клієнт — модифікований може вписати що завгодно.
+        await callback.answer("Ця кнопка вже неактуальна. Онови список: /habits")
+        return
+
+    telegram_id = callback.from_user.id
+    created = await api.check_in(telegram_id, callback_data.habit_id, day)
+    note = "Відмічено 🔥" if created else "Уже відмічено ✅"
+
+    message = callback.message
+    if not isinstance(message, Message):
+        # Старе повідомлення (понад 48 год) Telegram боту не віддає —
+        # відмітка вже збережена, перемальовувати просто нічого.
+        await callback.answer(note)
+        return
+
+    # Звичка тепер відмічена в будь-якому разі (щойно чи раніше), тож її
+    # кнопку прибираємо. Що лишилось у клавіатурі — те й досі не відмічено.
+    remaining_ids = [
+        habit_id
+        for habit_id in reminder_habit_ids(message.reply_markup)
+        if habit_id != callback_data.habit_id
+    ]
+    # Повні назви беремо з API, а не з кнопок: там вони вкорочені до 40
+    # символів. Звички, яку тим часом видалили, у списку просто не буде.
+    habits = {habit["id"]: habit for habit in await api.list_habits(telegram_id)}
+    remaining = [habits[i] for i in remaining_ids if i in habits]
+
+    # Відповідаємо на callback ПІСЛЯ збору даних — з тієї ж причини, що
+    # й у toggle_checkin: якщо list_habits впаде, on_error відповість сам.
+    await callback.answer(note)
+
+    try:
+        await message.edit_text(
+            reminder_text([habit["name"] for habit in remaining]),
+            reply_markup=reminder_keyboard(remaining, day),
+        )
+    except TelegramBadRequest as error:
         if "message is not modified" not in str(error):
             raise
 
