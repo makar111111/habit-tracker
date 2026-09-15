@@ -1650,6 +1650,17 @@ async def test_manual_timezone_is_canonicalized(tg: BotUnderTest):
         ("gmt-2", None),
         ("Etc/GMT+3", None),
         ("UTC+3", None),
+        ("GMT +3", None),  # пробіл між назвою і знаком
+        ("Etc/GMT-14", None),  # двозначний зсув
+        ("+3", None),  # лише знак і число
+        ("UTC+03:00", None),  # з хвилинами
+        ("UTC−3", None),  # юнікодний мінус U+2212 — так його ставлять телефони
+        # Нульовий зсув — це рівно UTC, знак не має значення: зберігаємо UTC,
+        # а не відмовляємо «зсув не підходить».
+        ("GMT+0", "UTC"),
+        ("utc-0", "UTC"),
+        ("Etc/GMT+0", "UTC"),
+        ("+00:00", "UTC"),
     ],
 )
 def test_resolve_timezone_returns_canonical_name(typed: str, saved: str | None):
@@ -1672,10 +1683,14 @@ async def test_unknown_manual_timezone_keeps_dialog(tg: BotUnderTest):
     assert (await me(tg))["timezone"] == "Europe/Berlin"
 
 
-async def test_offset_timezone_gets_explanation_and_keeps_dialog(tg: BotUnderTest):
+@pytest.mark.parametrize("typed", ["GMT+3", "+3", "UTC+03:00", "UTC−3"])
+async def test_offset_timezone_gets_explanation_and_keeps_dialog(
+    tg: BotUnderTest, typed: str
+):
+    """Будь-який зсув — пояснення, ЧОМУ не підходить, а не загальне «не знаю»."""
     await tg.tap("set:zone_manual:")
 
-    await tg.send("GMT+3")
+    await tg.send(typed)
 
     assert (await me(tg))["timezone"] == "Europe/Kyiv"
     assert "Europe/Kyiv" in tg.texts[0] and "місто" in tg.texts[0]
@@ -1728,6 +1743,18 @@ async def test_command_during_timezone_input_is_not_a_timezone(tg: BotUnderTest)
     await tg.send("/cancel")
     assert await tg.fsm_state() is None
     assert (await me(tg))["timezone"] == "Europe/Kyiv"
+
+
+async def test_repeated_manual_button_repeats_question(tg: BotUnderTest):
+    """Другий дотик «Ввести вручну» — це той самий діалог, а не конфлікт."""
+    await tg.tap("set:zone_manual:")
+
+    await tg.tap("set:zone_manual:")
+
+    assert "Спершу завершимо почате" not in " ".join(tg.texts)
+    assert any("Надішли назву часового поясу" in text for text in tg.texts)
+    await tg.send("Berlin")
+    assert (await me(tg))["timezone"] == "Europe/Berlin"
 
 
 async def test_manual_timezone_button_does_not_break_habit_dialog(tg: BotUnderTest):

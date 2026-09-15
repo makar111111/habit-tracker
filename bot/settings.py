@@ -104,8 +104,14 @@ def resolve_timezone(text: str) -> str | None:
     канонічне написання. Прийнятне й саме місто ("warsaw"), якщо воно
     однозначне; пробіли стають "_", як у назвах поясів ("New York").
     """
-    value = text.strip().replace(" ", "_").lower()
-    if not value or is_offset(value):
+    offset = parse_offset(text)
+    if offset is not None:
+        # Нульовий зсув — рівно UTC, знак значення не має. Решту зсувів
+        # відхиляємо (див. parse_offset), а got_timezone пояснить чому.
+        return "UTC" if offset == 0 else None
+
+    value = _normalize(text)
+    if not value:
         return None
 
     zones = _zones_by_lower()
@@ -116,19 +122,34 @@ def resolve_timezone(text: str) -> str | None:
     return by_city[0] if len(by_city) == 1 else None
 
 
-# «GMT+3», «utc-2», «Etc/GMT+3» — зсув, а не пояс.
-_OFFSET = re.compile(r"^(etc/)?(gmt|utc)_*[+-]_*\d{1,2}$")
+def _normalize(text: str) -> str:
+    """Регістр, пробіли й юнікодний мінус — до одного вигляду.
+
+    «−» (U+2212) ставлять клавіатури телефонів і автозаміна; для людини це
+    той самий мінус, тож і для розбору має бути тим самим «-».
+    """
+    return text.strip().replace("−", "-").replace(" ", "_").lower()
 
 
-def is_offset(text: str) -> bool:
-    """Чи людина ввела зсув від Гринвіча замість поясу.
+# Зсув від Гринвіча в будь-якому з поширених записів: «GMT+3», «gmt -2»,
+# «Etc/GMT+3», «UTC+03:00», «+3», «+0300». Назва перед знаком необов'язкова.
+_OFFSET = re.compile(r"^(?:(?:etc/)?(?:gmt|utc))?_*([+-])_*(\d{1,2})(?::?(\d{2}))?$")
 
-    Такі назви відхиляємо навмисно, хоча Etc/GMT+3 — валідний пояс:
+
+def parse_offset(text: str) -> int | None:
+    """Скільки хвилин зсуву ввела людина — або None, якщо це не зсув.
+
+    Ненульові зсуви відхиляємо навмисно, хоча Etc/GMT+3 — валідний пояс:
     за POSIX знак у ньому ПЕРЕВЕРНУТИЙ, тож «GMT+3» від людини з Києва
     означав би UTC−3, і нагадування «о 20:00» приходило б о 02:00.
     До того ж зсув не знає про літній час — пояс міста знає.
+    Знак у результаті не зберігаємо: для рішення важливо лише «нуль чи ні».
     """
-    return bool(_OFFSET.match(text.strip().replace(" ", "_").lower()))
+    match = _OFFSET.match(_normalize(text))
+    if match is None:
+        return None
+    _, hours, minutes = match.groups()
+    return int(hours) * 60 + int(minutes or 0)
 
 
 def settings_text(user: dict, now: datetime | None = None) -> str:
@@ -266,10 +287,11 @@ async def handle_settings_button(
         await _leave_timezone_input(state)
 
     if action == "zone_manual":
+        current = await state.get_state()
         # Новий стан мовчки затер би почате створення чи редагування звички —
-        # і недописана звичка просто зникла б. Інші кнопки налаштувань стан
-        # не чіпають, тож їм посеред діалогу дозволено.
-        if await state.get_state() is not None:
+        # і недописана звичка просто зникла б. Але повторний дотик посеред
+        # ВЛАСНОГО введення поясу — не конфлікт: просто ще раз питаємо.
+        if current is not None and current != SettingsDialog.timezone.state:
             await callback.answer(
                 "Спершу завершимо почате.\nНадішли /cancel, якщо передумав.",
                 show_alert=True,
@@ -345,7 +367,7 @@ async def got_timezone(message: Message, state: FSMContext, api: HabitsAPI) -> N
     zone = resolve_timezone(message.text or "")
     if zone is None:
         # Лишаємося в стані: людина може просто надіслати іншу назву.
-        if is_offset(message.text or ""):
+        if parse_offset(message.text or "") is not None:
             await message.answer(OFFSET_TIMEZONE)
         else:
             await message.answer(
