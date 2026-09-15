@@ -182,12 +182,17 @@ def reminder_habit_ids(markup: InlineKeyboardMarkup | None) -> list[int]:
     return ids
 
 
-def manage_keyboard(habits: list[dict]) -> InlineKeyboardMarkup:
+def manage_keyboard(
+    habits: list[dict], archived_count: int = 0
+) -> InlineKeyboardMarkup:
     """Список звичок у режимі керування: дотик відкриває картку.
 
     Навмисно без позначок ✅/⬜ і серій: тут людина не відмічає, а
     порядкує. Однакові на вигляд кнопки, що роблять різне, — найкоротший
     шлях до випадкового натискання не туди.
+
+    Кнопка архіву — лише коли в ньому щось є: порожній архів був би
+    кнопкою, яка нікуди не веде.
     """
     builder = InlineKeyboardBuilder()
 
@@ -197,14 +202,51 @@ def manage_keyboard(habits: list[dict]) -> InlineKeyboardMarkup:
             callback_data=HabitCallback(action="open", habit_id=habit["id"]),
         )
 
+    if archived_count:
+        builder.button(
+            text=f"📦 Архів ({archived_count})",
+            callback_data=MenuCallback(action="archive"),
+        )
     builder.button(text="⬅️ До списку", callback_data=MenuCallback(action="habits"))
     builder.adjust(1)
     return builder.as_markup()
 
 
-def habit_card_keyboard(habit_id: int) -> InlineKeyboardMarkup:
-    """Кнопки під карткою однієї звички."""
+def archive_keyboard(habits: list[dict]) -> InlineKeyboardMarkup:
+    """Архівні звички: дотик відкриває картку з «Відновити» й «Видалити»."""
     builder = InlineKeyboardBuilder()
+
+    for habit in habits:
+        builder.button(
+            text=f"📦 {shorten(habit['name'])}",
+            callback_data=HabitCallback(action="open", habit_id=habit["id"]),
+        )
+
+    builder.button(text="⬅️ Назад", callback_data=MenuCallback(action="manage"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def habit_card_keyboard(habit_id: int, archived: bool = False) -> InlineKeyboardMarkup:
+    """Кнопки під карткою однієї звички.
+
+    В архівній картці немає редагування: спершу відновити, потім правити.
+    Інакше архів перетворився б на другий, прихований список керування.
+    """
+    builder = InlineKeyboardBuilder()
+
+    if archived:
+        builder.button(
+            text="♻️ Відновити",
+            callback_data=HabitCallback(action="unarchive", habit_id=habit_id),
+        )
+        builder.button(
+            text="🗑 Видалити",
+            callback_data=HabitCallback(action="delete", habit_id=habit_id),
+        )
+        builder.button(text="⬅️ До архіву", callback_data=MenuCallback(action="archive"))
+        builder.adjust(1)
+        return builder.as_markup()
 
     builder.button(
         text="✏️ Перейменувати",
@@ -215,14 +257,20 @@ def habit_card_keyboard(habit_id: int) -> InlineKeyboardMarkup:
         callback_data=HabitCallback(action="describe", habit_id=habit_id),
     )
     builder.button(
+        text="📦 В архів",
+        callback_data=HabitCallback(action="archive", habit_id=habit_id),
+    )
+    builder.button(
         text="🗑 Видалити",
         callback_data=HabitCallback(action="delete", habit_id=habit_id),
     )
     builder.button(text="⬅️ Назад", callback_data=MenuCallback(action="manage"))
 
-    # Дві кнопки редагування поруч, а видалення — окремим рядком:
-    # найнебезпечніша дія не має стояти впритул до буденних.
-    builder.adjust(2, 1, 1)
+    # Дві кнопки редагування поруч, архів окремо, а видалення — ще окремим
+    # рядком: найнебезпечніша дія не має стояти впритул до буденних. Архів
+    # стоїть ВИЩЕ за видалення — безпечніша альтернатива має трапитись
+    # на очі першою.
+    builder.adjust(2, 1, 1, 1)
     return builder.as_markup()
 
 

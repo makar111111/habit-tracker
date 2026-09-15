@@ -1005,6 +1005,115 @@ async def test_delete_cancelled_keeps_habit(tg: BotUnderTest):
     assert "Йога" in tg.texts[-1]
 
 
+# ---------- архів ----------
+
+
+async def test_card_offers_archive_above_delete(tg: BotUnderTest):
+    """Безпечніша альтернатива видаленню має трапитись на очі першою."""
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+
+    await tg.tap(f"habit:open:{habit_id}")
+
+    assert tg.buttons.index("📦 В архів") < tg.buttons.index("🗑 Видалити")
+
+
+async def test_archive_hides_habit_but_keeps_history(tg: BotUnderTest):
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+    await tg.api.check_in(USER.id, habit_id)
+
+    await tg.tap(f"habit:archive:{habit_id}")
+
+    assert tg.sent[0] == ("Alert", "Перенесено в архів 📦", [])
+    # Одразу видно результат: звички немає серед активних, є вхід в архів.
+    assert "Йога" not in tg.buttons
+    assert "📦 Архів (1)" in tg.buttons
+    # Зі списку відміток (і нагадувань) звичка зникла…
+    assert await tg.api.list_habits(USER.id) == []
+    # …але відмітки лишились — саме цим архів і відрізняється від видалення.
+    response = await tg.api._request("GET", f"/habits/{habit_id}/checkins", USER.id)
+    assert len(response.json()) == 1
+
+
+async def test_archive_needs_no_confirmation(tg: BotUnderTest):
+    """На відміну від 🗑: один дотик — і готово, бо це легко скасувати."""
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+
+    await tg.tap(f"habit:archive:{habit_id}")
+
+    assert await tg.api.list_habits(USER.id) == []
+    assert "незворотно" not in " ".join(tg.texts)
+
+
+async def test_archived_card_offers_restore_and_delete_only(tg: BotUnderTest):
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+    await tg.tap(f"habit:archive:{habit_id}")
+
+    await tg.tap("menu:archive")
+    assert "📦 Йога" in tg.buttons
+
+    await tg.tap(f"habit:open:{habit_id}")
+
+    card = tg.texts[-1]
+    assert "В архіві з" in card
+    # «Сьогодні: ще ні» для звички на паузі звучало б як докір.
+    assert "Сьогодні" not in card
+    assert tg.buttons == ["♻️ Відновити", "🗑 Видалити", "⬅️ До архіву"]
+
+
+async def test_restore_returns_habit_to_list(tg: BotUnderTest):
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+    await tg.tap(f"habit:archive:{habit_id}")
+
+    await tg.tap(f"habit:unarchive:{habit_id}")
+
+    assert tg.sent[0] == ("Alert", "Відновлено ♻️", [])
+    assert [h["id"] for h in await tg.api.list_habits(USER.id)] == [habit_id]
+    # Картка вже активної звички — з редагуванням і кнопкою архіву.
+    assert "📦 В архів" in tg.buttons
+
+
+async def test_delete_from_archive_works(tg: BotUnderTest):
+    """Без include_archived архівна звичка виглядала б «уже видаленою»."""
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+    await tg.tap(f"habit:archive:{habit_id}")
+
+    await tg.tap(f"habit:delete:{habit_id}")
+    assert "незворотно" in tg.texts[-1]
+    await tg.tap(f"habit:confirm_delete:{habit_id}")
+
+    everything = await tg.api.list_habits(USER.id, include_archived=True)
+    assert everything == []
+
+
+async def test_manage_with_everything_archived_leads_to_archive(tg: BotUnderTest):
+    """«Керувати нічим» було б неправдою, коли архів не порожній."""
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+    await tg.tap(f"habit:archive:{habit_id}")
+
+    await tg.send("/manage")
+
+    assert "усі в архіві" in tg.texts[-1]
+    assert tg.buttons == ["📦 Архів (1)", "⬅️ До списку"]
+
+
+async def test_double_archive_tap_keeps_original_date(tg: BotUnderTest, monkeypatch):
+    """Повторний дотик по старій кнопці не зсуває дату архіву."""
+    monkeypatch.setattr(
+        calendar_rules, "now_utc", lambda: datetime(2026, 9, 10, 9, tzinfo=timezone.utc)
+    )
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+    await tg.tap(f"habit:archive:{habit_id}")
+
+    monkeypatch.setattr(
+        calendar_rules, "now_utc", lambda: datetime(2026, 9, 12, 9, tzinfo=timezone.utc)
+    )
+    await tg.tap(f"habit:archive:{habit_id}")
+
+    assert tg.sent[0] == ("Alert", "Перенесено в архів 📦", [])
+    (habit,) = await tg.api.list_habits(USER.id, include_archived=True)
+    assert habit["archived_at"] == "2026-09-10"
+
+
 async def test_double_confirm_delete_is_harmless(tg: BotUnderTest):
     """Два натискання «Так, видалити» не мають дати помилку.
 

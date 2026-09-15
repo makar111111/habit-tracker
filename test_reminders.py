@@ -326,6 +326,17 @@ async def test_send_reminders_attaches_buttons_for_undone_habits(api: HabitsAPI)
     assert buttons[0].callback_data == f"rem:{reading['id']}:2026-09-12"
 
 
+async def test_archived_habit_is_not_reminded(api: HabitsAPI):
+    """Архів — пауза: звичка не має нагадувати про себе."""
+    yoga = await api.create_habit(OLENA, "Йога")
+    await api.update_habit(OLENA, yoga["id"], archived=True)
+
+    bot = FakeBot()
+    await send_reminders(bot, api, now=NOW)
+
+    assert bot.sent == []
+
+
 def test_reminder_text_for_empty_list_says_all_done():
     """Після останньої відмітки з кнопок нагадування перемальовується так."""
     assert "Усе відмічено" in reminder_text([])

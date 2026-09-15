@@ -1,4 +1,4 @@
-"""Керування звичками з бота: перейменувати, змінити опис, видалити.
+"""Керування звичками з бота: перейменувати, змінити опис, архів, видалити.
 
 Окремий роутер від checkin.py навмисно, хоч обидва працюють із кнопками
 звичок. Причина в тому, ЩО вони роблять: checkin — одна дія в один дотик,
@@ -8,15 +8,18 @@
 
 Екрани та переходи між ними:
 
-    список звичок ──⚙️ Керувати──> список для керування
-                                          │
-                                    дотик по звичці
-                                          ▼
-                                   картка звички ──🗑──> підтвердження
-                                    │        │                 │
-                              ✏️ назва   📝 опис          видалення
-                                    ▼        ▼
+    список звичок ──⚙️ Керувати──> список для керування ──📦 Архів──> архів
+                                          │                              │
+                                    дотик по звичці                дотик по звичці
+                                          ▼                              ▼
+                                   картка звички ──🗑──>  підтвердження  <──🗑── архівна картка
+                                    │     │     │              │                  │
+                              ✏️ назва 📝 опис 📦 в архів   видалення        ♻️ відновити
+                                    ▼     ▼
                                  введення тексту
+
+Архів — пауза без втрати історії. Тому, на відміну від видалення, він
+не питає підтвердження: помилку виправляє один дотик «Відновити».
 """
 
 import asyncio
@@ -31,6 +34,7 @@ from aiogram.types import CallbackQuery, Message
 from bot.api import MAX_NAME_LENGTH, HabitsAPI
 from bot.keyboards import HabitCallback, MenuCallback
 from bot.views import (
+    archive_view,
     delete_confirm_view,
     habit_card_view,
     habits_view,
@@ -137,6 +141,68 @@ async def open_card(
     )
 
 
+# ---------- архів ----------
+
+
+@router.callback_query(MenuCallback.filter(F.action == "archive"))
+async def open_archive(callback: CallbackQuery, api: HabitsAPI) -> None:
+    await callback.answer()
+    if callback.from_user is None:
+        return
+
+    await _show(callback, await archive_view(api, callback.from_user.id))
+
+
+async def _set_archived(
+    callback: CallbackQuery, habit_id: int, api: HabitsAPI, *, archived: bool
+) -> str:
+    """Спільна частина «в архів» і «відновити». Повертає текст підказки.
+
+    Без блокування від подвійного кліку, на відміну від видалення: обидві
+    дії ідемпотентні на боці API — другий PATCH із тим самим archived
+    нічого не змінює (дата архіву не зсувається), тож і захищати нема від чого.
+    update_habit кидає HabitGone, якщо звичку тим часом видалили, — її
+    текст покаже on_error.
+    """
+    await api.update_habit(callback.from_user.id, habit_id, archived=archived)
+    return "Перенесено в архів 📦" if archived else "Відновлено ♻️"
+
+
+@router.callback_query(HabitCallback.filter(F.action == "archive"))
+async def do_archive(
+    callback: CallbackQuery, callback_data: HabitCallback, api: HabitsAPI
+) -> None:
+    """В архів — і назад до списку керування, де звички вже не видно.
+
+    Повертаємо саме в список, а не лишаємо в картці: людина щойно
+    прибрала звичку з очей, і саме цей результат вона має побачити.
+    """
+    if callback.from_user is None:
+        return
+
+    note = await _set_archived(callback, callback_data.habit_id, api, archived=True)
+    view = await manage_view(api, callback.from_user.id)
+    await callback.answer(note)
+    await _show(callback, view)
+
+
+@router.callback_query(HabitCallback.filter(F.action == "unarchive"))
+async def do_unarchive(
+    callback: CallbackQuery, callback_data: HabitCallback, api: HabitsAPI
+) -> None:
+    """Відновити — і показати картку вже активної звички з усіма діями."""
+    if callback.from_user is None:
+        return
+
+    note = await _set_archived(callback, callback_data.habit_id, api, archived=False)
+    view = await habit_card_view(api, callback.from_user.id, callback_data.habit_id)
+    if view is None:
+        await callback.answer(GONE, show_alert=True)
+        return
+    await callback.answer(note)
+    await _show(callback, view)
+
+
 # ---------- видалення ----------
 
 
@@ -166,7 +232,9 @@ async def do_delete(
     telegram_id = callback.from_user.id
 
     async with _locks[(callback.message.chat.id, telegram_id)]:
-        habits = await api.list_habits(telegram_id)
+        # include_archived: видаляти можна й з архіву. Без нього архівна
+        # звичка виглядала б «уже видаленою», і кнопка мовчки нічого б не робила.
+        habits = await api.list_habits(telegram_id, include_archived=True)
         if not any(h["id"] == callback_data.habit_id for h in habits):
             # Уже видалено — найімовірніше, другим кліком по тій самій
             # кнопці. Це не помилка: результат саме той, якого людина

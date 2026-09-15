@@ -6,11 +6,14 @@
 і вийшов би заплутаний звʼязок між обробниками.
 """
 
+from datetime import date
+
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.text_decorations import html_decoration
 
 from bot.api import HabitsAPI
 from bot.keyboards import (
+    archive_keyboard,
     delete_confirm_keyboard,
     habit_card_keyboard,
     habits_keyboard,
@@ -26,10 +29,24 @@ EMPTY_TEXT = (
 
 MANAGE_EMPTY_TEXT = "Керувати поки нічим — у тебе немає жодної звички."
 
+ARCHIVE_ONLY_TEXT = (
+    "<b>Керування звичками</b>\n\n"
+    "Активних звичок немає — усі в архіві. Відкрий архів, щоб відновити."
+)
+
 MANAGE_TEXT = (
     "<b>Керування звичками</b>\n\n"
-    "Обери звичку, щоб перейменувати, змінити опис або видалити."
+    "Обери звичку, щоб перейменувати, змінити опис, перенести в архів "
+    "або видалити."
 )
+
+ARCHIVE_TEXT = (
+    "<b>Архів</b> 📦\n\n"
+    "Звички на паузі: не показуються у списку й не нагадують, "
+    "але вся історія відміток збережена. Обери, щоб відновити або видалити."
+)
+
+ARCHIVE_EMPTY_TEXT = "Архів порожній."
 
 
 async def habits_view(
@@ -62,13 +79,31 @@ async def habits_view(
 async def manage_view(
     api: HabitsAPI, telegram_id: int
 ) -> tuple[str, InlineKeyboardMarkup]:
-    """Список звичок у режимі керування."""
-    habits = await api.list_habits(telegram_id)
+    """Список звичок у режимі керування (+ вхід в архів, якщо він не порожній)."""
+    everything = await api.list_habits(telegram_id, include_archived=True)
+    active = [habit for habit in everything if not habit.get("archived_at")]
+    archived_count = len(everything) - len(active)
 
-    if not habits:
-        return MANAGE_EMPTY_TEXT, manage_keyboard([])
+    if not active:
+        # Усі звички в архіві — «керувати нічим» було б неправдою:
+        # архів є, і до нього треба дати дорогу.
+        text = MANAGE_EMPTY_TEXT if not archived_count else ARCHIVE_ONLY_TEXT
+        return text, manage_keyboard([], archived_count)
 
-    return MANAGE_TEXT, manage_keyboard(habits)
+    return MANAGE_TEXT, manage_keyboard(active, archived_count)
+
+
+async def archive_view(
+    api: HabitsAPI, telegram_id: int
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Список архівних звичок."""
+    everything = await api.list_habits(telegram_id, include_archived=True)
+    archived = [habit for habit in everything if habit.get("archived_at")]
+
+    if not archived:
+        return ARCHIVE_EMPTY_TEXT, archive_keyboard([])
+
+    return ARCHIVE_TEXT, archive_keyboard(archived)
 
 
 def _card_text(habit: dict) -> str:
@@ -96,7 +131,12 @@ def _card_text(habit: dict) -> str:
 
     lines.append("")
     lines.append(f"📅 Розклад: {schedule_label(habit.get('weekdays') or EVERY_DAY)}")
-    if stats.get("done_today"):
+    archived_at = habit.get("archived_at")
+    if archived_at:
+        # «Сьогодні: ще ні» для звички на паузі звучало б як докір.
+        day = date.fromisoformat(archived_at)
+        lines.append(f"📦 В архіві з {day:%d.%m.%Y}")
+    elif stats.get("done_today"):
         lines.append("Сьогодні: ✅ відмічено")
     elif not habit.get("due_today", True):
         lines.append("Сьогодні: 💤 не заплановано")
@@ -120,20 +160,23 @@ async def habit_card_view(
     отримує ту саму перевірку власника: чужа чи видалена звичка просто
     не трапиться у списку, і функція поверне None.
     """
-    habits = await api.habits_with_stats(telegram_id)
+    # include_archived: картка відкривається і з архіву, а кнопка «Скасувати»
+    # на підтвердженні видалення теж веде сюди — для будь-якої звички.
+    habits = await api.habits_with_stats(telegram_id, include_archived=True)
     habit = next((h for h in habits if h["id"] == habit_id), None)
 
     if habit is None:
         return None
 
-    return _card_text(habit), habit_card_keyboard(habit_id)
+    archived = bool(habit.get("archived_at"))
+    return _card_text(habit), habit_card_keyboard(habit_id, archived=archived)
 
 
 async def delete_confirm_view(
     api: HabitsAPI, telegram_id: int, habit_id: int
 ) -> tuple[str, InlineKeyboardMarkup] | None:
     """Екран підтвердження видалення. None — звички вже немає."""
-    habits = await api.habits_with_stats(telegram_id)
+    habits = await api.habits_with_stats(telegram_id, include_archived=True)
     habit = next((h for h in habits if h["id"] == habit_id), None)
 
     if habit is None:

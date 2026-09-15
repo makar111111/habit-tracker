@@ -29,6 +29,16 @@ from bot.schedule import is_planned_on
 MAX_NAME_LENGTH = 100
 
 
+def _archived_param(include_archived: bool) -> dict[str, str]:
+    """Параметр запиту лише тоді, коли він щось змінює.
+
+    Без архіву не шлемо нічого, а не include_archived=false: так запит
+    лишається тим самим, що й до появи архіву в боті, і кеш чи логи
+    API не отримують нового «шуму» на кожен звичайний список.
+    """
+    return {"include_archived": "true"} if include_archived else {}
+
+
 class ApiError(Exception):
     """Базова помилка спілкування з API."""
 
@@ -196,17 +206,31 @@ class HabitsAPI:
 
     # ---------- звички ----------
 
-    async def list_habits(self, telegram_id: int) -> list[dict]:
-        """Звички людини: id, назва, опис."""
-        response = await self._request("GET", "/habits", telegram_id)
+    async def list_habits(
+        self, telegram_id: int, *, include_archived: bool = False
+    ) -> list[dict]:
+        """Звички людини: id, назва, опис.
+
+        Архівні API за замовчуванням не віддає — саме тому список відміток
+        і нагадування їх не бачать без жодного фільтра на боці бота.
+        """
+        response = await self._request(
+            "GET", "/habits", telegram_id, params=_archived_param(include_archived)
+        )
         return self._ok(response).json()
 
-    async def list_stats(self, telegram_id: int) -> list[dict]:
+    async def list_stats(
+        self, telegram_id: int, *, include_archived: bool = False
+    ) -> list[dict]:
         """Показники всіх звичок: серії, всього днів, чи зроблено сьогодні."""
-        response = await self._request("GET", "/stats", telegram_id)
+        response = await self._request(
+            "GET", "/stats", telegram_id, params=_archived_param(include_archived)
+        )
         return self._ok(response).json()
 
-    async def habits_with_stats(self, telegram_id: int) -> list[dict]:
+    async def habits_with_stats(
+        self, telegram_id: int, *, include_archived: bool = False
+    ) -> list[dict]:
         """Звички разом із їхніми показниками — усе для клавіатури одразу.
 
         Назви лежать у /habits, а серії — у /stats, тож потрібні обидва
@@ -221,8 +245,8 @@ class HabitsAPI:
         # Годинник процесу бота може бути в зовсім іншому часовому поясі.
         today = await self.today(telegram_id)
         habits, stats = await asyncio.gather(
-            self.list_habits(telegram_id),
-            self.list_stats(telegram_id),
+            self.list_habits(telegram_id, include_archived=include_archived),
+            self.list_stats(telegram_id, include_archived=include_archived),
         )
 
         # Показники приходять списком; перекладаємо у словник за habit_id,
@@ -264,8 +288,13 @@ class HabitsAPI:
         *,
         name: str | None = None,
         description: str | None = None,
+        archived: bool | None = None,
     ) -> dict:
-        """Змінити назву та/або опис звички.
+        """Змінити назву, опис звички або перенести її в архів і назад.
+
+        archived=True ховає звичку з активного списку, зберігаючи всю
+        історію відміток; archived=False повертає її. Повторний
+        archived=True безпечний: API не зсуває вже збережену дату архіву.
 
         Аргументи keyword-only (після `*`) навмисно: update_habit(id, "Йога")
         без назви поля читалося б двозначно — це нова назва чи опис?
@@ -275,11 +304,13 @@ class HabitsAPI:
         exclude_unset: чого немає в тілі, того він і не чіпає. Тому
         зміна лише назви не затирає опис порожнім рядком.
         """
-        payload: dict[str, str] = {}
+        payload: dict[str, str | bool] = {}
         if name is not None:
             payload["name"] = name[:MAX_NAME_LENGTH]
         if description is not None:
             payload["description"] = description
+        if archived is not None:
+            payload["archived"] = archived
 
         response = await self._request(
             "PATCH", f"/habits/{habit_id}", telegram_id, json=payload
