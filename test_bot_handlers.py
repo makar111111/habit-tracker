@@ -14,7 +14,7 @@
 """
 
 import asyncio
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from aiogram import Bot, Dispatcher
@@ -1558,12 +1558,22 @@ async def test_disabled_reminders_are_not_sent(tg: BotUnderTest, monkeypatch):
         lambda: datetime(2026, 9, 12, 17, tzinfo=timezone.utc),  # 20:00 у Києві
     )
     await tg.api.create_habit(USER.id, "Йога")
+    now = datetime(2026, 9, 12, 17, tzinfo=timezone.utc)
+
+    # Контроль: з увімкненими нагадуваннями ця сама ситуація ДАЄ нагадування.
+    # Без цього кроку тест пройшов би й тоді, коли нагадування не йде з
+    # якоїсь іншої причини, а кнопка вимкнення зламана.
+    tg.bot.session.sent.clear()
+    await send_reminders(tg.bot, tg.api, now=now)
+    assert any("Нагадування" in text for text in tg.texts)
+
+    # Наступного дня — щоб «уже надсилали сьогодні» не маскувало результат.
+    tomorrow = now + timedelta(days=1)
+    monkeypatch.setattr(calendar_rules, "now_utc", lambda: tomorrow)
     await tg.tap("set:reminders:off")
 
     tg.bot.session.sent.clear()
-    await send_reminders(
-        tg.bot, tg.api, now=datetime(2026, 9, 12, 17, tzinfo=timezone.utc)
-    )
+    await send_reminders(tg.bot, tg.api, now=tomorrow)
 
     assert tg.sent == []
 
@@ -1596,6 +1606,11 @@ async def test_pick_preset_timezone(tg: BotUnderTest):
         "set:hour:99",
         "set:hour:-1",
         "set:hour:abc",
+        # isdigit() каже True, а int() падає (²) або дає несподіване (٣ → 3):
+        # від клієнта приймаємо лише ASCII-цифри.
+        "set:hour:²",
+        "set:hour:٣",
+        "set:hour:+7",
         "set:reminders:maybe",
         "set:zone:Mars/Olympus",  # не з готового списку — навіть якби API прийняв
         "set:drop_tables:",
@@ -1629,9 +1644,15 @@ async def test_manual_timezone_is_canonicalized(tg: BotUnderTest):
         ("europe/kyiv", "Europe/Kyiv"),  # повна назва, інший регістр
         ("  UTC  ", "UTC"),
         ("warsaw", "Europe/Warsaw"),  # лише місто
+        # Зсуви відхиляємо: в Etc/GMT±N знак ПЕРЕВЕРНУТИЙ (POSIX), тож
+        # «GMT+3» від людини з Києва означав би UTC−3 — нагадування о 02:00.
+        ("GMT+3", None),
+        ("gmt-2", None),
+        ("Etc/GMT+3", None),
+        ("UTC+3", None),
     ],
 )
-def test_resolve_timezone_returns_canonical_name(typed: str, saved: str):
+def test_resolve_timezone_returns_canonical_name(typed: str, saved: str | None):
     """На Windows ZoneInfo("europe/kyiv") «працює» через нечутливу до регістру
     файлову систему — і без канонізації в базу ліг би пояс, якого на
     Linux-сервері не існує."""
@@ -1649,6 +1670,53 @@ async def test_unknown_manual_timezone_keeps_dialog(tg: BotUnderTest):
     # Лишаємося в діалозі — можна просто надіслати іншу назву.
     await tg.send("Berlin")
     assert (await me(tg))["timezone"] == "Europe/Berlin"
+
+
+async def test_offset_timezone_gets_explanation_and_keeps_dialog(tg: BotUnderTest):
+    await tg.tap("set:zone_manual:")
+
+    await tg.send("GMT+3")
+
+    assert (await me(tg))["timezone"] == "Europe/Kyiv"
+    assert "Europe/Kyiv" in tg.texts[0] and "місто" in tg.texts[0]
+    assert await tg.fsm_state() is not None
+
+
+@pytest.mark.parametrize("next_step", ["set:zone:Europe/Warsaw", "set:home:"])
+async def test_other_settings_button_closes_timezone_input(
+    tg: BotUnderTest, next_step: str
+):
+    """Натиснув «Ввести вручну», передумав і обрав кнопку — діалог не має зависнути.
+
+    Інакше /habits відповідав би «Спершу надішли назву поясу», а кнопки
+    відміток — «Спершу завершимо почате», хоча пояс уже збережено.
+    """
+    await tg.tap("set:zone_manual:")
+
+    await tg.tap(next_step)
+
+    assert await tg.fsm_state() is None
+    await tg.send("/habits")
+    assert "Твої звички" in tg.texts[0] or "немає жодної звички" in tg.texts[0]
+
+
+async def test_settings_command_closes_timezone_input(tg: BotUnderTest):
+    await tg.tap("set:zone_manual:")
+
+    await tg.send("/settings")
+
+    assert await tg.fsm_state() is None
+    assert "Налаштування" in tg.texts[0]
+
+
+async def test_settings_button_does_not_close_habit_dialog(tg: BotUnderTest):
+    """Скидати можна лише СВІЙ стан — недописана звичка має вижити."""
+    await tg.send("/new")
+    state_before = await tg.fsm_state()
+
+    await tg.tap("set:hour:7")
+
+    assert await tg.fsm_state() == state_before
 
 
 async def test_command_during_timezone_input_is_not_a_timezone(tg: BotUnderTest):

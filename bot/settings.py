@@ -16,6 +16,7 @@ API саме перевіряє значення (година 0–23, відо�
 вручну, перевіряємо ще й тут — див. resolve_timezone.
 """
 
+import re
 from datetime import datetime
 from functools import lru_cache
 from zoneinfo import ZoneInfo, available_timezones
@@ -51,6 +52,13 @@ ASK_TIMEZONE = (
     "Надішли назву часового поясу, наприклад <code>Europe/Berlin</code> "
     "або просто <code>Berlin</code>.\n\n"
     "Надішли /cancel, щоб лишити як було."
+)
+
+OFFSET_TIMEZONE = (
+    "Зсув на кшталт GMT+3 не підходить: він не враховує літній час, а в "
+    "базі поясів знак у таких назвах ще й перевернутий.\n\n"
+    "Напиши місто — наприклад <code>Europe/Kyiv</code> або просто "
+    "<code>Kyiv</code>. Або надішли /cancel."
 )
 
 UNKNOWN_TIMEZONE = (
@@ -97,7 +105,7 @@ def resolve_timezone(text: str) -> str | None:
     однозначне; пробіли стають "_", як у назвах поясів ("New York").
     """
     value = text.strip().replace(" ", "_").lower()
-    if not value:
+    if not value or is_offset(value):
         return None
 
     zones = _zones_by_lower()
@@ -106,6 +114,21 @@ def resolve_timezone(text: str) -> str | None:
 
     by_city = [zone for low, zone in zones.items() if low.rsplit("/", 1)[-1] == value]
     return by_city[0] if len(by_city) == 1 else None
+
+
+# «GMT+3», «utc-2», «Etc/GMT+3» — зсув, а не пояс.
+_OFFSET = re.compile(r"^(etc/)?(gmt|utc)_*[+-]_*\d{1,2}$")
+
+
+def is_offset(text: str) -> bool:
+    """Чи людина ввела зсув від Гринвіча замість поясу.
+
+    Такі назви відхиляємо навмисно, хоча Etc/GMT+3 — валідний пояс:
+    за POSIX знак у ньому ПЕРЕВЕРНУТИЙ, тож «GMT+3» від людини з Києва
+    означав би UTC−3, і нагадування «о 20:00» приходило б о 02:00.
+    До того ж зсув не знає про літній час — пояс міста знає.
+    """
+    return bool(_OFFSET.match(text.strip().replace(" ", "_").lower()))
 
 
 def settings_text(user: dict, now: datetime | None = None) -> str:
@@ -197,13 +220,20 @@ async def _edit(
         await callback.bot.send_message(message.chat.id, text, reply_markup=keyboard)
 
 
+async def _leave_timezone_input(state: FSMContext) -> None:
+    """Закрити введення поясу, якщо воно відкрите. Чужі стани не чіпає."""
+    if await state.get_state() == SettingsDialog.timezone.state:
+        await state.clear()
+
+
 # ---------- вхід ----------
 
 
 @router.message(Command("settings"))
-async def handle_settings(message: Message, api: HabitsAPI) -> None:
+async def handle_settings(message: Message, api: HabitsAPI, state: FSMContext) -> None:
     if message.from_user is None:
         return
+    await _leave_timezone_input(state)
     user = await api.get_me(message.from_user.id)
     await message.answer(settings_text(user), reply_markup=settings_keyboard(user))
 
@@ -228,6 +258,13 @@ async def handle_settings_button(
     telegram_id = callback.from_user.id
     action, value = callback_data.action, callback_data.value
 
+    if action != "zone_manual":
+        # «Ввести вручну» → передумав → натиснув готовий пояс чи «Назад»:
+        # без цього діалог лишився б відкритим, і /habits відповідав би
+        # «Спершу надішли назву поясу». Скидаємо лише СВІЙ стан — почате
+        # створення звички має вижити.
+        await _leave_timezone_input(state)
+
     if action == "zone_manual":
         # Новий стан мовчки затер би почате створення чи редагування звички —
         # і недописана звичка просто зникла б. Інші кнопки налаштувань стан
@@ -250,7 +287,9 @@ async def handle_settings_button(
         note = (
             "Нагадування увімкнено 🔔" if value == "on" else "Нагадування вимкнено 🔕"
         )
-    elif action == "hour" and value.isdigit() and 0 <= int(value) <= 23:
+    # isascii() обов'язково: isdigit() каже True і для «²» (тоді int() падає)
+    # чи арабського «٣» (int() дає 3) — від клієнта приймаємо лише ASCII-цифри.
+    elif action == "hour" and value.isascii() and value.isdigit() and int(value) <= 23:
         user = await api.update_settings(telegram_id, reminder_hour=int(value))
         note = f"Нагадування о {int(value):02d}:00"
     elif action == "zone" and value in PRESET_TIMEZONES:
@@ -306,9 +345,12 @@ async def got_timezone(message: Message, state: FSMContext, api: HabitsAPI) -> N
     zone = resolve_timezone(message.text or "")
     if zone is None:
         # Лишаємося в стані: людина може просто надіслати іншу назву.
-        await message.answer(
-            UNKNOWN_TIMEZONE.format(value=html_decoration.quote(message.text or ""))
-        )
+        if is_offset(message.text or ""):
+            await message.answer(OFFSET_TIMEZONE)
+        else:
+            await message.answer(
+                UNKNOWN_TIMEZONE.format(value=html_decoration.quote(message.text or ""))
+            )
         return
 
     user = await api.update_settings(message.from_user.id, timezone=zone)
