@@ -17,7 +17,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, ErrorEvent
 from aiogram.utils.text_decorations import html_decoration
 
-from bot import checkin, login, manage, menu, new_habit, support
+from bot import checkin, login, manage, menu, new_habit, settings, support
 from bot.api import ApiError, HabitsAPI
 from bot.reminders import reminder_loop
 from config import API_URL, BOT_SECRET, BOT_TOKEN
@@ -26,6 +26,7 @@ COMMANDS = [
     BotCommand(command="habits", description="Список звичок"),
     BotCommand(command="new", description="Додати звичку"),
     BotCommand(command="manage", description="Керувати звичками"),
+    BotCommand(command="settings", description="Налаштування нагадувань"),
     BotCommand(command="support", description="Підтримати проєкт"),
     BotCommand(command="help", description="Довідка"),
 ]
@@ -163,6 +164,9 @@ async def main() -> None:
     # коли її не забрав ніхто інший.
     dispatcher.include_router(login.router)
     dispatcher.include_router(support.router)
+    # settings — теж перед діалогами: його стан введення поясу має власні
+    # обробники, а /settings посеред створення звички інакше став би назвою.
+    dispatcher.include_router(settings.router)
     dispatcher.include_router(new_habit.router)
     dispatcher.include_router(manage.router)
     dispatcher.include_router(menu.router)

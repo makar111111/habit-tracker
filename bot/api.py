@@ -182,6 +182,35 @@ class HabitsAPI:
         )
         self._ok(response)
 
+    async def get_me(self, telegram_id: int) -> dict:
+        """Профіль людини: ім'я, часовий пояс, година й стан нагадувань."""
+        response = await self._request("GET", "/users/me", telegram_id)
+        return self._ok(response).json()
+
+    async def update_settings(
+        self,
+        telegram_id: int,
+        *,
+        timezone: str | None = None,
+        reminder_hour: int | None = None,
+        reminders_enabled: bool | None = None,
+    ) -> dict:
+        """Змінити налаштування нагадувань. Повертає оновлений профіль.
+
+        Як і в update_habit, у тіло йдуть ЛИШЕ передані поля: API
+        оновлює через exclude_unset, тож зміна години не зачепить пояс.
+        """
+        payload: dict[str, str | int | bool] = {}
+        if timezone is not None:
+            payload["timezone"] = timezone
+        if reminder_hour is not None:
+            payload["reminder_hour"] = reminder_hour
+        if reminders_enabled is not None:
+            payload["reminders_enabled"] = reminders_enabled
+
+        response = await self._request("PATCH", "/users/me", telegram_id, json=payload)
+        return self._ok(response).json()
+
     async def confirm_login(self, telegram_id: int, token: str) -> None:
         """Підтвердити код входу у вебверсію від імені цієї людини.
 

@@ -43,7 +43,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 import auth
 import calendar_rules
-from bot import checkin, manage, menu, new_habit, support
+from bot import checkin, manage, menu, new_habit, settings, support
 from bot.__main__ import on_error
 from bot.api import HabitsAPI
 from conftest import TEST_BOT_SECRET
@@ -257,6 +257,7 @@ async def tg_fixture(tmp_path, monkeypatch: pytest.MonkeyPatch):
     # Порядок той самий, що в __main__.py — інакше тести перевіряли б
     # не той бот, який запускається насправді.
     dispatcher.include_router(support.router)
+    dispatcher.include_router(settings.router)
     dispatcher.include_router(new_habit.router)
     dispatcher.include_router(manage.router)
     dispatcher.include_router(menu.router)
@@ -277,6 +278,7 @@ async def tg_fixture(tmp_path, monkeypatch: pytest.MonkeyPatch):
     # "Router is already attached".
     for router in (
         support.router,
+        settings.router,
         new_habit.router,
         manage.router,
         menu.router,
@@ -1509,6 +1511,188 @@ async def test_reminder_button_on_foreign_habit_changes_nothing(tg: BotUnderTest
     response = await tg.api._request("GET", f"/habits/{foreign['id']}/checkins", 9999)
     assert response.json() == []
     assert [kind for kind, _, _ in tg.sent] == ["Alert"]
+
+
+# ---------- /settings ----------
+
+
+async def me(tg: BotUnderTest) -> dict:
+    return await tg.api.get_me(USER.id)
+
+
+async def test_settings_shows_current_values(tg: BotUnderTest):
+    await tg.send("/settings")
+
+    text = tg.texts[0]
+    assert "увімкнені, о 20:00" in text
+    assert "Europe/Kyiv" in text
+    assert tg.buttons == [
+        "🔕 Вимкнути нагадування",
+        "🕗 Змінити годину",
+        "🌍 Змінити пояс",
+        "⬅️ До списку",
+    ]
+
+
+async def test_turn_reminders_off_and_on(tg: BotUnderTest):
+    """Раніше єдиним способом зупинити нагадування з Telegram було заблокувати бота."""
+    await tg.tap("set:reminders:off")
+
+    assert (await me(tg))["reminders_enabled"] is False
+    assert tg.sent[0] == ("Alert", "Нагадування вимкнено 🔕", [])
+    assert "вимкнені" in tg.texts[-1]
+    assert tg.buttons[0] == "🔔 Увімкнути нагадування"
+
+    await tg.tap("set:reminders:on")
+
+    assert (await me(tg))["reminders_enabled"] is True
+
+
+async def test_disabled_reminders_are_not_sent(tg: BotUnderTest, monkeypatch):
+    """Кнопка справді зупиняє розсилку, а не лише змінює текст на екрані."""
+    from bot.reminders import send_reminders
+
+    monkeypatch.setattr(
+        calendar_rules,
+        "now_utc",
+        lambda: datetime(2026, 9, 12, 17, tzinfo=timezone.utc),  # 20:00 у Києві
+    )
+    await tg.api.create_habit(USER.id, "Йога")
+    await tg.tap("set:reminders:off")
+
+    tg.bot.session.sent.clear()
+    await send_reminders(
+        tg.bot, tg.api, now=datetime(2026, 9, 12, 17, tzinfo=timezone.utc)
+    )
+
+    assert tg.sent == []
+
+
+async def test_change_reminder_hour(tg: BotUnderTest):
+    await tg.tap("set:hours:")
+    assert "✅20" in tg.buttons
+    assert len([b for b in tg.buttons if b[-2:].isdigit()]) == 24
+
+    await tg.tap("set:hour:7")
+
+    assert (await me(tg))["reminder_hour"] == 7
+    assert tg.sent[0] == ("Alert", "Нагадування о 07:00", [])
+    assert "о 07:00" in tg.texts[-1]
+
+
+async def test_pick_preset_timezone(tg: BotUnderTest):
+    await tg.tap("set:zones:")
+    assert "✅ Europe/Kyiv" in tg.buttons
+
+    await tg.tap("set:zone:Europe/Warsaw")
+
+    assert (await me(tg))["timezone"] == "Europe/Warsaw"
+    assert "Europe/Warsaw" in tg.texts[-1]
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        "set:hour:99",
+        "set:hour:-1",
+        "set:hour:abc",
+        "set:reminders:maybe",
+        "set:zone:Mars/Olympus",  # не з готового списку — навіть якби API прийняв
+        "set:drop_tables:",
+    ],
+)
+async def test_forged_settings_buttons_change_nothing(tg: BotUnderTest, data: str):
+    before = await me(tg)
+
+    await tg.tap(data)
+
+    assert await me(tg) == before
+    assert [kind for kind, _, _ in tg.sent] == ["Alert"]
+    assert "неактуальна" in tg.texts[0]
+
+
+async def test_manual_timezone_is_canonicalized(tg: BotUnderTest):
+    """«new york» → America/New_York: у базу — лише канонічна назва."""
+    await tg.tap("set:zone_manual:")
+    assert await tg.fsm_state() is not None
+
+    await tg.send("new york")
+
+    assert (await me(tg))["timezone"] == "America/New_York"
+    assert "Збережено" in tg.texts[0]
+    assert await tg.fsm_state() is None
+
+
+@pytest.mark.parametrize(
+    ("typed", "saved"),
+    [
+        ("europe/kyiv", "Europe/Kyiv"),  # повна назва, інший регістр
+        ("  UTC  ", "UTC"),
+        ("warsaw", "Europe/Warsaw"),  # лише місто
+    ],
+)
+def test_resolve_timezone_returns_canonical_name(typed: str, saved: str):
+    """На Windows ZoneInfo("europe/kyiv") «працює» через нечутливу до регістру
+    файлову систему — і без канонізації в базу ліг би пояс, якого на
+    Linux-сервері не існує."""
+    assert settings.resolve_timezone(typed) == saved
+
+
+async def test_unknown_manual_timezone_keeps_dialog(tg: BotUnderTest):
+    await tg.tap("set:zone_manual:")
+
+    await tg.send("Марс <Олімп>")
+
+    assert (await me(tg))["timezone"] == "Europe/Kyiv"
+    # Введене людиною повертається в текст — тож екрановане.
+    assert "Марс &lt;Олімп&gt;" in tg.texts[0]
+    # Лишаємося в діалозі — можна просто надіслати іншу назву.
+    await tg.send("Berlin")
+    assert (await me(tg))["timezone"] == "Europe/Berlin"
+
+
+async def test_command_during_timezone_input_is_not_a_timezone(tg: BotUnderTest):
+    await tg.tap("set:zone_manual:")
+
+    await tg.send("/habits")
+
+    assert "Спершу надішли назву поясу" in tg.texts[0]
+    await tg.send("/cancel")
+    assert await tg.fsm_state() is None
+    assert (await me(tg))["timezone"] == "Europe/Kyiv"
+
+
+async def test_manual_timezone_button_does_not_break_habit_dialog(tg: BotUnderTest):
+    """Посеред /new «Ввести вручну» не має мовчки затерти недописану звичку."""
+    await tg.send("/new")
+    state_before = await tg.fsm_state()
+
+    await tg.tap("set:zone_manual:")
+
+    assert await tg.fsm_state() == state_before
+    assert "Спершу завершимо почате" in tg.texts[0]
+
+
+async def test_settings_command_mid_habit_dialog_does_not_become_name(
+    tg: BotUnderTest,
+):
+    """/settings посеред /new відкриває налаштування, а не стає назвою звички."""
+    await tg.send("/new")
+
+    await tg.send("/settings")
+
+    assert await tg.api.list_habits(USER.id) == []
+    assert "Налаштування" in tg.texts[0]
+
+
+def test_main_registers_settings_before_dialogs():
+    import inspect
+
+    import bot.__main__ as entry
+
+    source = inspect.getsource(entry.main)
+    assert source.index("settings.router") < source.index("new_habit.router")
+    assert any(command.command == "settings" for command in entry.COMMANDS)
 
 
 # ---------- донати в Stars (/support) ----------
