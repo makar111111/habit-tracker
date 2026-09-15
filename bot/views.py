@@ -6,7 +6,7 @@
 і вийшов би заплутаний звʼязок між обробниками.
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.text_decorations import html_decoration
@@ -20,7 +20,7 @@ from bot.keyboards import (
     manage_keyboard,
 )
 from bot.plural import plural
-from bot.schedule import EVERY_DAY, schedule_label
+from bot.schedule import EVERY_DAY, is_planned_on, schedule_label
 
 EMPTY_TEXT = (
     "У тебе ще немає жодної звички.\n\n"
@@ -169,7 +169,23 @@ async def habit_card_view(
         return None
 
     archived = bool(habit.get("archived_at"))
-    return _card_text(habit), habit_card_keyboard(habit_id, archived=archived)
+    yesterday = None if archived else await _yesterday_state(api, telegram_id, habit)
+    keyboard = habit_card_keyboard(habit_id, archived=archived, yesterday=yesterday)
+    return _card_text(habit), keyboard
+
+
+async def _yesterday_state(
+    api: HabitsAPI, telegram_id: int, habit: dict
+) -> tuple[date, bool] | None:
+    """(вчорашній день, чи відмічений) — або None, якщо вчора не було в розкладі.
+
+    «Вчора» — у часовому поясі людини (api.today), а не за годинником
+    бота: сервер бота може жити в іншому поясі, і тоді «вчора» зсунулося б.
+    """
+    day = await api.today(telegram_id) - timedelta(days=1)
+    if not is_planned_on(habit, day):
+        return None
+    return day, await api.is_checked_in(telegram_id, habit["id"], day)
 
 
 async def delete_confirm_view(

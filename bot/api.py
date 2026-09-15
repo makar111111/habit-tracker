@@ -374,6 +374,21 @@ class HabitsAPI:
         self._ok(response)
         return True
 
+    async def is_checked_in(self, telegram_id: int, habit_id: int, day: date) -> bool:
+        """Чи є відмітка звички за конкретний день.
+
+        Показники (/stats) знають лише «сьогодні», тож для будь-якого
+        іншого дня питаємо відмітки за період рівно з одного дня.
+        """
+        response = await self._request(
+            "GET",
+            f"/habits/{habit_id}/checkins",
+            telegram_id,
+            params={"since": day.isoformat(), "until": day.isoformat()},
+        )
+        self._raise_if_gone(response)
+        return bool(self._ok(response).json())
+
     async def undo_check_in(self, telegram_id: int, habit_id: int, day: date) -> bool:
         """Зняти відмітку за конкретний день. False — знімати не було чого.
 

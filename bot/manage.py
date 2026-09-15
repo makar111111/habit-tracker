@@ -24,6 +24,7 @@
 
 import asyncio
 from collections import defaultdict
+from datetime import date
 
 from aiogram import F, Router
 from aiogram.filters import Command, StateFilter
@@ -32,7 +33,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
 from bot.api import MAX_NAME_LENGTH, HabitsAPI
-from bot.keyboards import HabitCallback, MenuCallback
+from bot.keyboards import DayCallback, HabitCallback, MenuCallback
 from bot.views import (
     archive_view,
     delete_confirm_view,
@@ -53,6 +54,8 @@ MAX_DESCRIPTION_LENGTH = 500
 CLEAR_MARKER = "-"
 
 GONE = "Цієї звички вже немає. Онови список: /habits"
+
+STALE = "Ця кнопка вже неактуальна. Відкрий картку заново: /manage"
 
 ASK_NAME = "Введи нову назву.\n\nНадішли /cancel, щоб лишити як було."
 ASK_DESCRIPTION = (
@@ -196,6 +199,65 @@ async def do_unarchive(
 
     note = await _set_archived(callback, callback_data.habit_id, api, archived=False)
     view = await habit_card_view(api, callback.from_user.id, callback_data.habit_id)
+    if view is None:
+        await callback.answer(GONE, show_alert=True)
+        return
+    await callback.answer(note)
+    await _show(callback, view)
+
+
+# ---------- відмітка за вчора ----------
+
+
+@router.callback_query(DayCallback.filter())
+async def mark_past_day(
+    callback: CallbackQuery, callback_data: DayCallback, api: HabitsAPI
+) -> None:
+    """Відмітити або зняти відмітку за день, зашитий у кнопку картки.
+
+    Робимо саме те, що написано на кнопці, а не «перемикаємо»: якщо день
+    тим часом відмітили у браузері, «Відмітити» не має його зняти. Після
+    дії картку перемальовуємо з бази — там і видно, як є насправді.
+
+    Перевірки «посеред діалогу» немає з тієї ж причини, що в нагадуваннях:
+    перемальовується сама картка, а не список, тож хибного сигналу
+    «діалог завершено» людина не отримує.
+    """
+    if callback.from_user is None:
+        return
+
+    try:
+        day = date.fromisoformat(callback_data.day)
+    except ValueError:
+        # Дані кнопки шле клієнт — модифікований може вписати що завгодно.
+        await callback.answer(STALE, show_alert=True)
+        return
+
+    telegram_id = callback.from_user.id
+    habit_id = callback_data.habit_id
+
+    # API приймає відмітку за БУДЬ-ЯКИЙ день, зокрема майбутній. Кнопка
+    # картки пропонує лише вчора, тож сьогоднішній і пізніші дні можуть
+    # прийти тільки від підробленого клієнта — і роздули б серії наперед.
+    if day >= await api.today(telegram_id):
+        await callback.answer(STALE, show_alert=True)
+        return
+
+    if callback_data.action == "mark":
+        created = await api.check_in(telegram_id, habit_id, day)
+        note = f"Відмічено за {day:%d.%m} ✅" if created else "Цей день уже відмічено"
+    elif callback_data.action == "unmark":
+        removed = await api.undo_check_in(telegram_id, habit_id, day)
+        note = (
+            f"Відмітку за {day:%d.%m} знято" if removed else "Відмітку вже було знято"
+        )
+    else:
+        await callback.answer(STALE, show_alert=True)
+        return
+
+    # Дані для картки — ДО відповіді на callback, як у toggle_checkin: якщо
+    # запит впаде, on_error відповість на натискання сам, одним викликом.
+    view = await habit_card_view(api, telegram_id, habit_id)
     if view is None:
         await callback.answer(GONE, show_alert=True)
         return

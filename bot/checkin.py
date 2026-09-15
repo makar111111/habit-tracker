@@ -144,6 +144,12 @@ async def check_in_from_reminder(
         return
 
     telegram_id = callback.from_user.id
+    # API приймає відмітку й за майбутній день. Нагадування надсилається
+    # лише за сьогодні, тож пізніша дата — тільки від підробленого клієнта.
+    if day > await api.today(telegram_id):
+        await callback.answer("Ця кнопка вже неактуальна. Онови список: /habits")
+        return
+
     created = await api.check_in(telegram_id, callback_data.habit_id, day)
     note = "Відмічено 🔥" if created else "Уже відмічено ✅"
 

@@ -55,6 +55,21 @@ class ReminderCallback(CallbackData, prefix="rem"):
     day: str
 
 
+class DayCallback(CallbackData, prefix="day"):
+    """Відмітка звички за конкретний минулий день із картки.
+
+    action — "mark" або "unmark", а не перемикач: підпис кнопки показує
+    стан на момент відкриття картки, і дія має бути саме тією, що
+    написана на кнопці. День — рядком ISO, з тієї ж причини, що в
+    ReminderCallback: картку можуть відкрити до опівночі, а натиснути після.
+    "day:unmark:12345:2026-09-14" — 27 байтів із 64.
+    """
+
+    action: str
+    habit_id: int
+    day: str
+
+
 class MenuCallback(CallbackData, prefix="menu"):
     """Кнопки, не привʼязані до конкретної звички."""
 
@@ -227,11 +242,26 @@ def archive_keyboard(habits: list[dict]) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def habit_card_keyboard(habit_id: int, archived: bool = False) -> InlineKeyboardMarkup:
+def yesterday_button_text(day: date, done: bool) -> str:
+    """Підпис кнопки «за вчора» з датою — щоб після опівночі не було плутанини."""
+    if done:
+        return f"✅ Вчора відмічено ({day:%d.%m}) · зняти"
+    return f"↩️ Відмітити вчора ({day:%d.%m})"
+
+
+def habit_card_keyboard(
+    habit_id: int,
+    archived: bool = False,
+    yesterday: tuple[date, bool] | None = None,
+) -> InlineKeyboardMarkup:
     """Кнопки під карткою однієї звички.
 
     В архівній картці немає редагування: спершу відновити, потім правити.
     Інакше архів перетворився б на другий, прихований список керування.
+
+    yesterday — (день, чи відмічений) або None, якщо вчора звичка не була
+    запланована (день поза розкладом, до початку звички). Тоді кнопки немає:
+    пропонувати «наздогнати» день, якого в розкладі не було, — дивно.
     """
     builder = InlineKeyboardBuilder()
 
@@ -247,6 +277,17 @@ def habit_card_keyboard(habit_id: int, archived: bool = False) -> InlineKeyboard
         builder.button(text="⬅️ До архіву", callback_data=MenuCallback(action="archive"))
         builder.adjust(1)
         return builder.as_markup()
+
+    if yesterday is not None:
+        day, done = yesterday
+        builder.button(
+            text=yesterday_button_text(day, done),
+            callback_data=DayCallback(
+                action="unmark" if done else "mark",
+                habit_id=habit_id,
+                day=day.isoformat(),
+            ),
+        )
 
     builder.button(
         text="✏️ Перейменувати",
@@ -269,8 +310,9 @@ def habit_card_keyboard(habit_id: int, archived: bool = False) -> InlineKeyboard
     # Дві кнопки редагування поруч, архів окремо, а видалення — ще окремим
     # рядком: найнебезпечніша дія не має стояти впритул до буденних. Архів
     # стоїть ВИЩЕ за видалення — безпечніша альтернатива має трапитись
-    # на очі першою.
-    builder.adjust(2, 1, 1, 1)
+    # на очі першою. «За вчора» — найбуденніша дія, тож окремим першим рядком.
+    rows = (2, 1, 1, 1)
+    builder.adjust(*((1, *rows) if yesterday is not None else rows))
     return builder.as_markup()
 
 

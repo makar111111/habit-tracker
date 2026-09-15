@@ -1114,6 +1114,123 @@ async def test_double_archive_tap_keeps_original_date(tg: BotUnderTest, monkeypa
     assert habit["archived_at"] == "2026-09-10"
 
 
+# ---------- відмітка за вчора в картці ----------
+
+
+def set_clock(monkeypatch, day: int, hour: int = 9) -> None:
+    """Годинник API на вересень 2026 (UTC). Київ = UTC+3, тож 9:00 — той самий день."""
+    monkeypatch.setattr(
+        calendar_rules,
+        "now_utc",
+        lambda: datetime(2026, 9, day, hour, tzinfo=timezone.utc),
+    )
+
+
+async def habit_from_past(tg: BotUnderTest, monkeypatch, **kwargs) -> int:
+    """Звичка, створена 10.09, а «сьогодні» — 12.09: учора (11.09) вона вже була."""
+    set_clock(monkeypatch, 10)
+    habit = await tg.api.create_habit(USER.id, "Йога", **kwargs)
+    set_clock(monkeypatch, 12)
+    return habit["id"]
+
+
+async def test_card_offers_marking_yesterday_with_date(tg: BotUnderTest, monkeypatch):
+    habit_id = await habit_from_past(tg, monkeypatch)
+
+    await tg.tap(f"habit:open:{habit_id}")
+
+    # Першим рядком і з датою: після опівночі «вчора» без дати заплутало б.
+    assert tg.buttons[0] == "↩️ Відмітити вчора (11.09)"
+
+
+async def test_marking_yesterday_saves_that_day(tg: BotUnderTest, monkeypatch):
+    habit_id = await habit_from_past(tg, monkeypatch)
+
+    await tg.tap(f"day:mark:{habit_id}:2026-09-11")
+
+    assert await checkin_days(tg, habit_id) == ["2026-09-11"]
+    assert tg.sent[0] == ("Alert", "Відмічено за 11.09 ✅", [])
+    # Картка перемальована: кнопка тепер пропонує зняти.
+    assert tg.buttons[0] == "✅ Вчора відмічено (11.09) · зняти"
+
+
+async def test_unmarking_yesterday_removes_only_that_day(tg: BotUnderTest, monkeypatch):
+    habit_id = await habit_from_past(tg, monkeypatch)
+    await tg.api.check_in(USER.id, habit_id)  # сьогодні, 12.09
+    await tg.tap(f"day:mark:{habit_id}:2026-09-11")
+
+    await tg.tap(f"day:unmark:{habit_id}:2026-09-11")
+
+    assert await checkin_days(tg, habit_id) == ["2026-09-12"]
+    assert tg.sent[0] == ("Alert", "Відмітку за 11.09 знято", [])
+    assert tg.buttons[0] == "↩️ Відмітити вчора (11.09)"
+
+
+async def test_stale_mark_button_does_not_unmark(tg: BotUnderTest, monkeypatch):
+    """Кнопка «Відмітити» зі старої картки, а день уже відмітили у браузері.
+
+    Перемикач зняв би відмітку — протилежне до написаного на кнопці.
+    """
+    habit_id = await habit_from_past(tg, monkeypatch)
+    await tg.api.check_in(USER.id, habit_id, date(2026, 9, 11))
+
+    await tg.tap(f"day:mark:{habit_id}:2026-09-11")
+
+    assert tg.sent[0] == ("Alert", "Цей день уже відмічено", [])
+    assert await checkin_days(tg, habit_id) == ["2026-09-11"]
+
+
+async def test_new_habit_has_no_yesterday_button(tg: BotUnderTest):
+    """Звичка, створена сьогодні, вчора ще не існувала — «наздоганяти» нічого."""
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+
+    await tg.tap(f"habit:open:{habit_id}")
+
+    assert not any("вчора" in button.lower() for button in tg.buttons)
+
+
+async def test_no_yesterday_button_when_yesterday_was_off_schedule(
+    tg: BotUnderTest, monkeypatch
+):
+    # 11.09.2026 — п'ятниця; звичка лише по понеділках.
+    habit_id = await habit_from_past(tg, monkeypatch, weekdays=[0])
+
+    await tg.tap(f"habit:open:{habit_id}")
+
+    assert not any("вчора" in button.lower() for button in tg.buttons)
+
+
+@pytest.mark.parametrize(
+    "day",
+    [
+        "2026-09-12",  # сьогодні — для цього є звичайна кнопка в /habits
+        "2030-01-01",  # майбутнє: API таке прийняв би й роздув серію наперед
+        "not-a-day",
+    ],
+)
+async def test_forged_day_button_changes_nothing(
+    tg: BotUnderTest, monkeypatch, day: str
+):
+    habit_id = await habit_from_past(tg, monkeypatch)
+
+    await tg.tap(f"day:mark:{habit_id}:{day}")
+
+    assert await checkin_days(tg, habit_id) == []
+    assert [kind for kind, _, _ in tg.sent] == ["Alert"]
+    assert "неактуальна" in tg.texts[0]
+
+
+async def test_forged_future_reminder_button_changes_nothing(
+    tg: BotUnderTest, monkeypatch
+):
+    """Та сама діра в кнопці нагадування: дата в ній теж від клієнта."""
+    habit_id = await habit_from_past(tg, monkeypatch)
+
+    await tap_reminder(tg, habit_id, "2030-01-01", None)
+
+    assert await checkin_days(tg, habit_id) == []
+
+
 async def test_double_confirm_delete_is_harmless(tg: BotUnderTest):
     """Два натискання «Так, видалити» не мають дати помилку.
 
