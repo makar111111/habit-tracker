@@ -4,7 +4,7 @@
 Порядок тестів не має значення, і вони не заважають один одному.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 from sqlalchemy import event
@@ -101,6 +101,61 @@ def test_checkin_rejects_impossible_date(client: TestClient, habit_id: int):
     response = client.post(f"/habits/{habit_id}/checkins", json={"day": "2026-02-31"})
 
     assert response.status_code == 422
+
+
+def _freeze_utc(monkeypatch, moment: datetime) -> None:
+    """Зупинити "зараз" для user_today: тест не залежить від годинника."""
+    import calendar_rules
+
+    monkeypatch.setattr(calendar_rules, "now_utc", lambda: moment)
+
+
+def test_checkin_rejects_future_day(client: TestClient, habit_id: int, monkeypatch):
+    """Прямий запит не повинен накручувати відмітки наперед."""
+    _freeze_utc(monkeypatch, datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc))
+    client.patch("/users/me", json={"timezone": "Europe/Kyiv"})
+    start_before = client.get(f"/habits/{habit_id}").json()["start_date"]
+
+    for future in ["2026-09-16", "2030-01-01"]:
+        response = client.post(f"/habits/{habit_id}/checkins", json={"day": future})
+        assert response.status_code == 422
+        assert response.json()["detail"] == "Не можна відмітити день, який ще не настав"
+
+    # Головне — що відмітка не збереглася і не зсунула start_date.
+    assert client.get(f"/habits/{habit_id}/checkins").json() == []
+    assert client.get(f"/habits/{habit_id}").json()["start_date"] == start_before
+
+
+def test_checkin_accepts_today_and_yesterday(
+    client: TestClient, habit_id: int, monkeypatch
+):
+    _freeze_utc(monkeypatch, datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc))
+    client.patch("/users/me", json={"timezone": "Europe/Kyiv"})
+
+    for day in ["2026-09-15", "2026-09-14"]:
+        response = client.post(f"/habits/{habit_id}/checkins", json={"day": day})
+        assert response.status_code == 201
+        assert response.json()["day"] == day
+
+
+def test_future_check_uses_owner_timezone(
+    client: TestClient, habit_id: int, monkeypatch
+):
+    """22:30 UTC 14 вересня — у Києві (UTC+3) вже 01:30 15 вересня.
+
+    Якби сервер рахував "сьогодні" за UTC чи date.today(), киянину
+    відмовили б у відмітці за його власне сьогодні.
+    """
+    _freeze_utc(monkeypatch, datetime(2026, 9, 14, 22, 30, tzinfo=timezone.utc))
+    url = f"/habits/{habit_id}/checkins"
+
+    client.patch("/users/me", json={"timezone": "UTC"})
+    assert client.post(url, json={"day": "2026-09-15"}).status_code == 422
+
+    client.patch("/users/me", json={"timezone": "Europe/Kyiv"})
+    response = client.post(url, json={"day": "2026-09-15"})
+    assert response.status_code == 201
+    assert client.post(url, json={"day": "2026-09-16"}).status_code == 422
 
 
 def test_delete_checkin(client: TestClient, habit_id: int):

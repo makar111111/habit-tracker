@@ -539,7 +539,14 @@ def create_checkin(
     """Відмітити звичку як виконану. Без вказаного дня — за сьогодні."""
     habit = get_habit_or_404(habit_id, user, session)
 
-    day = data.day or user_today(user)
+    today = user_today(user)
+    day = data.day or today
+    # Бот і календар у вебі вже не пропонують майбутніх днів, але прямий
+    # запит їх оминає — без цієї перевірки серію можна накрутити наперед.
+    if day > today:
+        raise HTTPException(
+            status_code=422, detail="Не можна відмітити день, який ще не настав"
+        )
     if habit.archived_at and day > habit.archived_at:
         raise HTTPException(status_code=422, detail="Спершу віднови звичку з архіву")
 
