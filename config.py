@@ -55,6 +55,14 @@ SESSION_TTL_SECONDS = int(os.environ.get("SESSION_TTL_SECONDS", 30 * 24 * 3600))
 # і в нього не має бути часу «полежати» в історії браузера чи в чаті.
 LOGIN_TOKEN_TTL_SECONDS = int(os.environ.get("LOGIN_TOKEN_TTL_SECONDS", 300))
 
+# Скільки кодів входу одна IP-адреса може попросити за вікно. Людині
+# вистачає одного-двох (відкрила сторінку, може, оновила); десять за
+# хвилину — з запасом для живої людини і замало для флуду бази.
+LOGIN_CODE_RATE_LIMIT = int(os.environ.get("LOGIN_CODE_RATE_LIMIT", 10))
+LOGIN_CODE_RATE_WINDOW_SECONDS = int(
+    os.environ.get("LOGIN_CODE_RATE_WINDOW_SECONDS", 60)
+)
+
 # Чи вважати запит БЕЗ будь-якої автентифікації «локальним користувачем».
 #
 # Так проєкт жив, поки був однокористувацьким, і для розробки це зручно:

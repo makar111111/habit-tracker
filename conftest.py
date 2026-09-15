@@ -12,12 +12,28 @@ from sqlmodel.pool import StaticPool
 
 import auth
 from database import get_session
-from main import app
+from main import app, login_code_limiter
 
 # Секрет для тестів. Навмисно латиницею: HTTP-заголовки однобайтові,
 # і кирилиця в них не проходить — та сама пастка, через яку ім'я
 # користувача ми передаємо тілом запиту, а не заголовком.
 TEST_BOT_SECRET = "test-secret-for-pytest"
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limits():
+    """Кожен тест починає з порожніми лічильниками частоти запитів.
+
+    autouse — фікстура спрацьовує для ВСІХ тестів, навіть без згадки в
+    аргументах. Лімітер живе на рівні модуля main.py і спільний для всього
+    прогону pytest, а всі запити TestClient приходять з однієї адреси
+    "testclient". Без скидання тести, що просять коди входу, разом
+    вичерпали б ліміт — і падав би вже котрийсь наступний, залежно від
+    порядку запуску.
+    """
+    login_code_limiter.reset()
+    yield
+    login_code_limiter.reset()
 
 
 @pytest.fixture(name="session")

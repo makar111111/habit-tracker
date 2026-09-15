@@ -3,12 +3,13 @@
 import secrets
 import asyncio
 import logging
+import math
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import delete, update, or_
@@ -26,12 +27,15 @@ from calendar_rules import local_day, now_utc
 from config import (
     BACKUP_DIR,
     BOT_USERNAME,
+    LOGIN_CODE_RATE_LIMIT,
+    LOGIN_CODE_RATE_WINDOW_SECONDS,
     LOGIN_TOKEN_TTL_SECONDS,
     SESSION_SECRET,
     SESSION_TTL_SECONDS,
     SESSION_COOKIE_SECURE,
 )
 from database import create_db_and_tables, get_session
+from rate_limit import RateLimiter
 from models import (
     Checkin,
     CheckinCreate,
@@ -132,13 +136,35 @@ def get_habit_or_404(habit_id: int, user: User, session: Session) -> Habit:
 # знає напевно. Код — це естафетна паличка між ними.
 
 
+# Один лімітер на весь процес: лічильники мають переживати окремі запити.
+login_code_limiter = RateLimiter(
+    limit=LOGIN_CODE_RATE_LIMIT, window_seconds=LOGIN_CODE_RATE_WINDOW_SECONDS
+)
+
+
 @app.post("/auth/login-code", status_code=201)
-def create_login_code(session: SessionDep, response: Response) -> dict:
+def create_login_code(
+    request: Request, session: SessionDep, response: Response
+) -> dict:
     """Видати браузеру одноразовий код і посилання на бота."""
     if not SESSION_SECRET or not BOT_USERNAME:
         raise HTTPException(
             status_code=503,
             detail="Вхід не налаштовано: у .env потрібні SESSION_SECRET і BOT_USERNAME",
+        )
+
+    # Перевірка ДО запису в базу — інакше ліміт не захищав би саме те,
+    # заради чого він існує. Ключ — IP-адреса: до входу іншого
+    # способу відрізнити одного відвідувача від іншого немає.
+    client_ip = request.client.host if request.client else "unknown"
+    retry_after = login_code_limiter.hit(client_ip)
+    if retry_after is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="Забагато спроб входу. Зачекайте хвилину й спробуйте ще раз.",
+            # Retry-After — стандартний заголовок: скільки секунд чекати.
+            # Цілі секунди вгору, щоб клієнт не повернувся на мить раніше.
+            headers={"Retry-After": str(max(1, math.ceil(retry_after)))},
         )
 
     # token_urlsafe(32) — 32 випадкові байти. Підібрати перебором
