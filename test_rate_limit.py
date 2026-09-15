@@ -5,10 +5,14 @@
 перед записом у базу і що клієнт отримує 429 з Retry-After.
 """
 
+import re
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 from sqlmodel.pool import StaticPool
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 import main
 from database import get_session
@@ -195,3 +199,90 @@ def test_endpoint_allows_again_after_window(login_api):
     clock.now += 60
 
     assert client.post("/auth/login-code").status_code == 201
+
+
+# ---------- за reverse proxy (Dockerfile + docker-compose.yml) ----------
+
+ROOT = Path(__file__).parent
+# Адреса, з якої проксі на хості приходить у контейнер (шлюз мережі Docker).
+PROXY_IP = "172.18.0.1"
+
+
+def compose_forwarded_allow_ips() -> str:
+    """Значення за замовчуванням із docker-compose.yml — саме його й перевіряємо.
+
+    Читаємо з файлу, а не копіюємо в тест: якщо хтось змінить compose,
+    тест перевірятиме нове значення, а не застарілу копію.
+    """
+    text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    match = re.search(
+        r"FORWARDED_ALLOW_IPS:\s*\$\{FORWARDED_ALLOW_IPS:-([^}]+)\}", text
+    )
+    assert match, "FORWARDED_ALLOW_IPS не знайдено в docker-compose.yml"
+    return match.group(1)
+
+
+def client_behind_proxy(trusted_hosts: str) -> TestClient:
+    """Застосунок так, як його запускає uvicorn --proxy-headers за проксі."""
+    wrapped = ProxyHeadersMiddleware(app, trusted_hosts=trusted_hosts)
+    return TestClient(wrapped, client=(PROXY_IP, 50000))
+
+
+def spoofed_request(client: TestClient, fake_ip: str, real_ip: str):
+    # Клієнт сам пише fake_ip; nginx ДОПИСУЄ справжню адресу праворуч.
+    return client.post(
+        "/auth/login-code", headers={"X-Forwarded-For": f"{fake_ip}, {real_ip}"}
+    )
+
+
+def test_dockerfile_enables_proxy_headers():
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    cmd = next(line for line in dockerfile.splitlines() if line.startswith("CMD"))
+
+    assert "--proxy-headers" in cmd
+
+
+def test_compose_does_not_trust_everyone():
+    assert compose_forwarded_allow_ips().strip() != "*"
+
+
+def test_limit_uses_real_ip_behind_proxy(login_api):
+    """Двоє відвідувачів за одним проксі мають окремі лічильники."""
+    client = client_behind_proxy(compose_forwarded_allow_ips())
+    headers_a = {"X-Forwarded-For": "203.0.113.7"}
+    for _ in range(3):
+        client.post("/auth/login-code", headers=headers_a)
+
+    assert client.post("/auth/login-code", headers=headers_a).status_code == 429
+    response_b = client.post(
+        "/auth/login-code", headers={"X-Forwarded-For": "198.51.100.9"}
+    )
+    assert response_b.status_code == 201
+
+
+def test_spoofed_forwarded_for_does_not_bypass_limit(login_api):
+    """Вигадана адреса на початку заголовка не дає нового лічильника."""
+    client = client_behind_proxy(compose_forwarded_allow_ips())
+
+    statuses = [
+        spoofed_request(client, f"10.9.9.{i}", "203.0.113.7").status_code
+        for i in range(4)
+    ]
+
+    assert statuses == [201, 201, 201, 429]
+
+
+def test_trusting_everyone_would_allow_bypass(login_api):
+    """Чому в compose не "*": з ним та сама атака проходить.
+
+    Цей тест фіксує поведінку uvicorn, заради якої обрано конкретну мережу.
+    Якщо він колись упаде — uvicorn змінив логіку, і вибір варто переглянути.
+    """
+    client = client_behind_proxy("*")
+
+    statuses = [
+        spoofed_request(client, f"10.9.9.{i}", "203.0.113.7").status_code
+        for i in range(4)
+    ]
+
+    assert statuses == [201, 201, 201, 201]
