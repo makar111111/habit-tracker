@@ -22,14 +22,28 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.base import BaseSession
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
-from aiogram.types import CallbackQuery, Chat, Message, Update, User
+from aiogram.methods import (
+    AnswerCallbackQuery,
+    AnswerPreCheckoutQuery,
+    EditMessageText,
+    SendInvoice,
+    SendMessage,
+)
+from aiogram.types import (
+    CallbackQuery,
+    Chat,
+    Message,
+    PreCheckoutQuery,
+    SuccessfulPayment,
+    Update,
+    User,
+)
 from httpx import ASGITransport, AsyncClient
 from sqlmodel import Session, SQLModel, create_engine
 
 import auth
 import calendar_rules
-from bot import checkin, manage, menu, new_habit
+from bot import checkin, manage, menu, new_habit, support
 from bot.__main__ import on_error
 from bot.api import HabitsAPI
 from conftest import TEST_BOT_SECRET
@@ -83,6 +97,17 @@ class RecordingSession(BaseSession):
             # Найважливіший запис у цьому файлі. Поки бот не відповість
             # на натискання, Telegram крутить на кнопці «годинник».
             self.sent.append(("Alert", method.text or "", []))
+            return True
+
+        if isinstance(method, SendInvoice):
+            # Замість кнопок — ціни: саме їх людина побачить у рахунку.
+            prices = [f"{p.amount} {method.currency}" for p in method.prices]
+            self.sent.append(("SendInvoice", method.payload, prices))
+            return Message(message_id=len(self.sent), date=datetime.now(), chat=CHAT)
+
+        if isinstance(method, AnswerPreCheckoutQuery):
+            verdict = "ok" if method.ok else "reject"
+            self.sent.append(("PreCheckout", method.error_message or "", [verdict]))
             return True
 
         return True
@@ -231,6 +256,7 @@ async def tg_fixture(tmp_path, monkeypatch: pytest.MonkeyPatch):
 
     # Порядок той самий, що в __main__.py — інакше тести перевіряли б
     # не той бот, який запускається насправді.
+    dispatcher.include_router(support.router)
     dispatcher.include_router(new_habit.router)
     dispatcher.include_router(manage.router)
     dispatcher.include_router(menu.router)
@@ -249,7 +275,13 @@ async def tg_fixture(tmp_path, monkeypatch: pytest.MonkeyPatch):
     # але кожен тест будує диспетчер заново, тож відвʼязуємо їх назад.
     # Інакше все, крім першого тесту, падало б із
     # "Router is already attached".
-    for router in (new_habit.router, manage.router, menu.router, checkin.router):
+    for router in (
+        support.router,
+        new_habit.router,
+        manage.router,
+        menu.router,
+        checkin.router,
+    ):
         router._parent_router = None
 
 
@@ -1115,3 +1147,140 @@ def test_toggle_day_keeps_list_sorted():
 
     assert toggle_day([0, 4], 2) == [0, 2, 4]
     assert toggle_day([0, 2, 4], 2) == [0, 4]
+
+
+# ---------- донати в Stars (/support) ----------
+
+
+async def pre_checkout(
+    tg: BotUnderTest, payload: str, amount: int, currency: str = "XTR"
+) -> None:
+    """Telegram питає бота «приймаєш цей платіж?» — крок перед списанням."""
+    tg._update_id += 1
+    tg.bot.session.sent.clear()
+    await tg.feed(
+        Update(
+            update_id=tg._update_id,
+            pre_checkout_query=PreCheckoutQuery(
+                id=str(tg._update_id),
+                from_user=USER,
+                currency=currency,
+                total_amount=amount,
+                invoice_payload=payload,
+            ),
+        )
+    )
+
+
+async def paid(tg: BotUnderTest, amount: int) -> None:
+    """Гроші списано — Telegram присилає повідомлення з successful_payment."""
+    tg._update_id += 1
+    tg.bot.session.sent.clear()
+    await tg.feed(
+        Update(
+            update_id=tg._update_id,
+            message=Message(
+                message_id=tg._update_id,
+                date=datetime.now(),
+                chat=CHAT,
+                from_user=USER,
+                successful_payment=SuccessfulPayment(
+                    currency="XTR",
+                    total_amount=amount,
+                    invoice_payload=f"donate:{amount}",
+                    telegram_payment_charge_id="charge-1",
+                    provider_payment_charge_id="",
+                ),
+            ),
+        )
+    )
+
+
+async def test_support_offers_amounts(tg: BotUnderTest):
+    await tg.send("/support")
+
+    assert "Підтримати трекер" in tg.texts[0]
+    assert tg.buttons == ["50 ⭐", "100 ⭐", "250 ⭐"]
+
+
+async def test_choosing_amount_sends_stars_invoice(tg: BotUnderTest):
+    await tg.tap("support:100")
+
+    # Кнопка підтверджена (без «годинника») і рахунок саме в Stars.
+    assert tg.sent == [
+        ("Alert", "", []),
+        ("SendInvoice", "donate:100", ["100 XTR"]),
+    ]
+
+
+async def test_forged_amount_gets_no_invoice(tg: BotUnderTest):
+    """callback_data шле клієнт — модифікований клієнт може вписати будь-що."""
+    await tg.tap("support:1")
+
+    assert [kind for kind, _, _ in tg.sent] == ["Alert"]
+    assert "недоступна" in tg.texts[0]
+
+
+async def test_pre_checkout_accepts_own_invoice(tg: BotUnderTest):
+    await pre_checkout(tg, "donate:250", 250)
+
+    assert tg.sent == [("PreCheckout", "", ["ok"])]
+
+
+@pytest.mark.parametrize(
+    ("payload", "amount", "currency"),
+    [
+        ("donate:250", 1, "XTR"),  # сума не збігається з payload
+        ("donate:7", 7, "XTR"),  # суми немає в списку
+        ("donate:100", 100, "USD"),  # не Stars
+        ("pro:100", 100, "XTR"),  # чужий рахунок
+        ("donate:abc", 100, "XTR"),  # сміття в payload
+    ],
+)
+async def test_pre_checkout_rejects_suspicious(
+    tg: BotUnderTest, payload: str, amount: int, currency: str
+):
+    """Відмова на цьому кроці — останній момент, коли гроші ще не списані."""
+    await pre_checkout(tg, payload, amount, currency)
+
+    assert [verdict for _, _, (verdict,) in tg.sent] == ["reject"]
+    assert tg.sent[0][1], "відмова має пояснювати причину"
+
+
+async def test_successful_payment_thanks(tg: BotUnderTest):
+    await paid(tg, 100)
+
+    assert tg.texts == ["Дякую за підтримку! 💛 Отримано 100 ⭐"]
+
+
+async def test_payment_mid_dialog_still_thanks(tg: BotUnderTest):
+    """Оплата посеред створення звички не має з'їстися діалогом.
+
+    new_habit ловить у стані ВСЕ, що не текст («надішли назву текстом»).
+    Якщо роутер донатів підключити після нього, людина замість подяки
+    отримає пояснення про назву звички.
+    """
+    await tg.send("/new")
+    await paid(tg, 50)
+
+    assert tg.texts == ["Дякую за підтримку! 💛 Отримано 50 ⭐"]
+    # І діалог не перервався — людина може спокійно дописати назву.
+    assert await tg.fsm_state() is not None
+
+
+async def test_paysupport_escapes_contact(tg: BotUnderTest, monkeypatch):
+    monkeypatch.setattr(support, "SUPPORT_CONTACT", "<Розробник>")
+
+    await tg.send("/paysupport")
+
+    assert "&lt;Розробник&gt;" in tg.texts[0]
+
+
+def test_main_registers_support_before_dialogs():
+    """Порядок у фікстурі вище перевіряє лише тести; тут — бойовий бот."""
+    import inspect
+
+    import bot.__main__ as entry
+
+    source = inspect.getsource(entry.main)
+    assert source.index("support.router") < source.index("new_habit.router")

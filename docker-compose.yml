@@ -77,6 +77,7 @@ services:
       BOT_TOKEN: ${BOT_TOKEN:?BOT_TOKEN не заданий — заповни .env}
       BOT_SECRET: ${BOT_SECRET:?BOT_SECRET не заданий — заповни .env}
       REMINDER_HOUR: ${REMINDER_HOUR:-20}
+      SUPPORT_CONTACT: ${SUPPORT_CONTACT:-}
       # Часовий пояс системних логів; особистий розклад зберігає API.
       TZ: ${TZ:-Europe/Kyiv}
 

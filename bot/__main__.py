@@ -17,7 +17,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, ErrorEvent
 from aiogram.utils.text_decorations import html_decoration
 
-from bot import checkin, login, manage, menu, new_habit
+from bot import checkin, login, manage, menu, new_habit, support
 from bot.api import ApiError, HabitsAPI
 from bot.reminders import reminder_loop
 from config import API_URL, BOT_SECRET, BOT_TOKEN
@@ -26,6 +26,7 @@ COMMANDS = [
     BotCommand(command="habits", description="Список звичок"),
     BotCommand(command="new", description="Додати звичку"),
     BotCommand(command="manage", description="Керувати звичками"),
+    BotCommand(command="support", description="Підтримати проєкт"),
     BotCommand(command="help", description="Довідка"),
 ]
 
@@ -147,6 +148,12 @@ async def main() -> None:
     # login — найперший: він ловить лише /start З КОДОМ і має встигнути
     # перехопити його раніше, ніж menu відповість звичайним привітанням.
     #
+    # support — одразу після login, ПЕРЕД діалогами: у new_habit і manage
+    # є обробники станів без фільтра за типом повідомлення, і оплата
+    # посеред діалогу потрапила б туди («надішли назву текстом») замість
+    # подяки. Нічого зайвого support не забирає: він ловить лише свої
+    # команди, свої кнопки й платіжні події.
+    #
     # Далі обидва роутери з діалогами (new_habit, manage) — усередині
     # діалогу їхні обробники мають перехопити текст раніше, ніж menu
     # спробує розпізнати в ньому команду.
@@ -155,6 +162,7 @@ async def main() -> None:
     # натискань, і він за визначенням має бачити подію лише тоді,
     # коли її не забрав ніхто інший.
     dispatcher.include_router(login.router)
+    dispatcher.include_router(support.router)
     dispatcher.include_router(new_habit.router)
     dispatcher.include_router(manage.router)
     dispatcher.include_router(menu.router)

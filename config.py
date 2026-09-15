@@ -25,6 +25,10 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 # Де бот шукатиме API.
 API_URL = os.environ.get("API_URL", "http://127.0.0.1:8000")
 
+# Контакт для питань щодо оплати (/paysupport), наприклад @username.
+# Порожньо — бот дає загальну підказку без конкретного контакту.
+SUPPORT_CONTACT = os.environ.get("SUPPORT_CONTACT", "")
+
 # Сумісність зі старим helper next_run_at. Робочий цикл нагадувань бере
 # особисті reminder_hour і timezone користувача з API.
 REMINDER_HOUR = int(os.environ.get("REMINDER_HOUR", "20"))
