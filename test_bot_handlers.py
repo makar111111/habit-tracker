@@ -46,6 +46,7 @@ import calendar_rules
 from bot import checkin, manage, menu, new_habit, settings, support
 from bot.__main__ import on_error
 from bot.api import HabitsAPI
+from bot.templates import TEMPLATES, TEMPLATES_BY_KEY
 from conftest import TEST_BOT_SECRET
 from database import get_session
 from main import app
@@ -57,6 +58,10 @@ from main import app
 # сварився б попередженням.
 
 USER = User(id=4242, is_bot=False, first_name="Олена", last_name="К")
+
+# Текст, який показує on_error на будь-який непередбачений виняток. Його поява
+# в тесті означає, що обробник упав, навіть якщо решта перевірок пройшла.
+UNHANDLED = "Щось пішло не так. Спробуй ще раз."
 CHAT = Chat(id=4242, type="private")
 
 
@@ -263,6 +268,15 @@ async def tg_fixture(tmp_path, monkeypatch: pytest.MonkeyPatch):
     dispatcher.include_router(menu.router)
     dispatcher.include_router(checkin.router)
 
+    # Модульні словники локів переживають тест, а ключ (CHAT, USER) у всіх
+    # тестах однаковий. asyncio.Lock прив'язується до event loop, щойно на
+    # ньому хтось ЧЕКАЄ, а pytest-asyncio дає кожному тесту новий loop.
+    # Без очищення другий тест подвійного кліку ловив RuntimeError «bound to
+    # a different event loop», яку мовчки ковтав on_error, — і тест падав
+    # або проходив залежно від ПОРЯДКУ запуску. У бойовому боті loop один.
+    new_habit._dialog_locks.clear()
+    manage._locks.clear()
+
     yield BotUnderTest(dispatcher, bot, api)
 
     await api.close()
@@ -306,7 +320,8 @@ async def test_start_greets_and_shows_empty_list(tg: BotUnderTest):
 
     assert "Вітаю, Олена" in tg.texts[0]
     assert "ще немає жодної звички" in tg.texts[0]
-    assert tg.buttons == ["➕ Нова звичка", "⚙️ Керувати"]
+    # Новачок одразу бачить готові звички, а не лише «натисни ➕».
+    assert tg.buttons == [t.name for t in TEMPLATES] + ["➕ Своя звичка"]
 
 
 async def test_start_saves_name(tg: BotUnderTest):
@@ -709,6 +724,158 @@ async def test_double_click_create_makes_exactly_one_habit(tg: BotUnderTest):
     # Хибного "загубився" тепер бути не повинно — переможений виклик
     # застає стан уже ЧЕСНО прибраним (лок серіалізував виклики).
     assert not any("загубився" in t for t in texts)
+    # І жодного винятку, проковтнутого on_error: без цієї перевірки тест
+    # проходив і тоді, коли другий клік падав із RuntimeError на локу.
+    assert UNHANDLED not in tg.texts
+
+
+# ---------- шаблони звичок для новачка ----------
+
+
+def template(key: str):
+    return TEMPLATES_BY_KEY[key]
+
+
+async def test_template_tap_creates_habit_with_description_and_daily_schedule(
+    tg: BotUnderTest,
+):
+    await tg.send("/start")
+
+    await tg.tap("tpl:water")
+
+    (habit,) = await tg.api.list_habits(USER.id)
+    assert habit["name"] == template("water").name
+    assert habit["description"] == template("water").description
+    assert habit["weekdays"] == list(range(7))
+    assert tg.sent[0] == ("Alert", f"Додано: {template('water').name}", [])
+
+
+async def test_template_screen_stays_open_without_added_one(tg: BotUnderTest):
+    """Можна обрати кілька поспіль — екран не викидає в список після першого."""
+    await tg.send("/start")
+
+    await tg.tap("tpl:water")
+
+    kind, text, buttons = tg.sent[1]
+    assert kind == "EditMessageText"
+    assert "Готові звички" in text
+    assert template("water").name not in buttons
+    assert template("read").name in buttons
+    # Звичка вже є — тож з'являється вихід до списку.
+    assert buttons[-2:] == ["➕ Своя звичка", "✅ До списку"]
+
+
+async def test_double_tap_on_template_creates_exactly_one_habit(tg: BotUnderTest):
+    await tg.send("/start")
+
+    tg.bot.session.sent.clear()
+    await asyncio.gather(
+        tg.feed(tg.make_tap("tpl:read")), tg.feed(tg.make_tap("tpl:read"))
+    )
+
+    habits = await tg.api.list_habits(USER.id)
+    assert [h["name"] for h in habits] == [template("read").name]
+    assert UNHANDLED not in tg.texts
+    alerts = [text for kind, text, _ in tg.sent if kind == "Alert"]
+    assert sorted(alerts) == sorted(
+        [f"Додано: {template('read').name}", "Така звичка вже є"]
+    )
+
+
+async def test_stale_template_button_does_not_duplicate(tg: BotUnderTest):
+    """Кнопка зі старого повідомлення, а звичку вже додано (чи створено вручну)."""
+    await tg.api.create_habit(USER.id, template("move").name.upper())
+
+    await tg.tap("tpl:move")
+
+    assert len(await tg.api.list_habits(USER.id)) == 1
+    assert tg.sent[0] == ("Alert", "Така звичка вже є", [])
+
+
+async def test_forged_template_key_creates_nothing(tg: BotUnderTest):
+    await tg.tap("tpl:drop_tables")
+
+    assert await tg.api.list_habits(USER.id) == []
+    assert [kind for kind, _, _ in tg.sent] == ["Alert"]
+    assert "шаблону вже немає" in tg.texts[0]
+
+
+async def test_archived_habit_hides_its_template(tg: BotUnderTest):
+    """Для звички на паузі шлях — «Відновити» з історією, а не дублікат."""
+    habit = await tg.api.create_habit(USER.id, template("walk").name)
+    await tg.api.update_habit(USER.id, habit["id"], archived=True)
+
+    await tg.send("/habits")
+
+    assert template("walk").name not in tg.buttons
+    assert template("water").name in tg.buttons
+
+
+async def test_all_templates_taken(tg: BotUnderTest):
+    for t in TEMPLATES:
+        await tg.api.create_habit(USER.id, t.name)
+
+    await tg.send("/new")
+    await tg.tap("menu:templates")
+
+    assert "Усі шаблони вже додано" in tg.texts[-1]
+    assert tg.buttons == ["➕ Своя звичка", "✅ До списку"]
+
+
+async def test_new_dialog_offers_templates_and_template_replaces_typed_name(
+    tg: BotUnderTest,
+):
+    """«📋 Обрати з шаблонів» — законна відповідь на «Як назвемо звичку?».
+
+    Після вибору шаблону діалог закритий: наступне повідомлення людини
+    не має стати назвою ще однієї звички.
+    """
+    await tg.send("/new")
+    assert tg.buttons == ["📋 Обрати з шаблонів"]
+
+    await tg.tap("menu:templates")
+    assert await tg.fsm_state() is None
+    await tg.tap("tpl:sleep")
+    await tg.send("а коли вечеря?")
+
+    habits = await tg.api.list_habits(USER.id)
+    assert [h["name"] for h in habits] == [template("sleep").name]
+
+
+async def test_template_after_name_step_is_refused(tg: BotUnderTest):
+    """Назву вже введено — шаблон мовчки викинув би її, тож відмовляємо."""
+    await tg.send("/new")
+    await tg.send("Моя звичка")
+    state_before = await tg.fsm_state()
+
+    await tg.tap("tpl:water")
+
+    assert await tg.api.list_habits(USER.id) == []
+    assert await tg.fsm_state() == state_before
+    assert "Спершу завершимо почате" in tg.texts[0]
+
+
+async def test_template_during_edit_dialog_is_refused(tg: BotUnderTest):
+    habit_id = await create_habit_via_dialog(tg, "Йога")
+    await tg.tap(f"habit:rename:{habit_id}")
+    state_before = await tg.fsm_state()
+
+    await tg.tap("menu:templates")
+
+    assert await tg.fsm_state() == state_before
+    assert "Спершу завершимо почате" in tg.texts[0]
+
+
+def test_templates_fit_telegram_limits():
+    """Назва — на кнопці (MAX_BUTTON_TEXT), key — у callback_data (64 байти)."""
+    from bot.keyboards import MAX_BUTTON_TEXT, TemplateCallback
+
+    assert len({t.key for t in TEMPLATES}) == len(TEMPLATES)
+    assert len({t.name.casefold() for t in TEMPLATES}) == len(TEMPLATES)
+    for t in TEMPLATES:
+        assert len(t.name) <= MAX_BUTTON_TEXT
+        assert len(TemplateCallback(key=t.key).pack().encode()) <= 64
+        assert t.weekdays, "шаблон без жодного дня не нагадував би ніколи"
 
 
 # ---------- HTML-екранування власного імені ----------
