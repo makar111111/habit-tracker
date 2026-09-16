@@ -18,13 +18,25 @@ from bot.keyboards import (
     habit_card_keyboard,
     habits_keyboard,
     manage_keyboard,
+    templates_keyboard,
 )
 from bot.plural import plural
 from bot.schedule import EVERY_DAY, is_planned_on, schedule_label
+from bot.templates import TEMPLATES
 
 EMPTY_TEXT = (
     "У тебе ще немає жодної звички.\n\n"
-    "Натисни кнопку нижче або надішли /new, щоб додати першу."
+    "Почни з готової — один дотик, і вона в списку. "
+    "Або створи свою кнопкою «➕ Своя звичка»."
+)
+
+TEMPLATES_TEXT = (
+    "<b>Готові звички</b> 📋\n\nОдин дотик — і звичка в списку. Можна обрати кілька."
+)
+
+TEMPLATES_ALL_TAKEN_TEXT = (
+    "<b>Готові звички</b> 📋\n\n"
+    "Усі шаблони вже додано. Створи свою або повертайся до списку."
 )
 
 MANAGE_EMPTY_TEXT = "Керувати поки нічим — у тебе немає жодної звички."
@@ -56,7 +68,8 @@ async def habits_view(
     habits = await api.habits_with_stats(telegram_id)
 
     if not habits:
-        return EMPTY_TEXT, habits_keyboard([])
+        # Порожній список — одразу готові звички, а не лише «натисни ➕».
+        return await templates_view(api, telegram_id)
 
     planned = [habit for habit in habits if habit.get("due_today", True)]
     done = sum(1 for habit in planned if habit.get("stats", {}).get("done_today"))
@@ -74,6 +87,29 @@ async def habits_view(
         text += "\n💤 — сьогодні не заплановано."
 
     return text, habits_keyboard(habits)
+
+
+async def templates_view(
+    api: HabitsAPI, telegram_id: int
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Екран готових звичок — без тих, що вже є у людини.
+
+    Уже додані ховаємо за назвою, враховуючи й архів: інакше шаблон
+    мовчки створив би дублікат звички, яка стоїть на паузі, — а правильний
+    шлях для неї «♻️ Відновити», зі збереженою історією.
+    """
+    everything = await api.list_habits(telegram_id, include_archived=True)
+    taken = {habit["name"].casefold() for habit in everything}
+    active = [habit for habit in everything if not habit.get("archived_at")]
+    available = [t for t in TEMPLATES if t.name.casefold() not in taken]
+
+    if not active:
+        text = EMPTY_TEXT
+    elif available:
+        text = TEMPLATES_TEXT
+    else:
+        text = TEMPLATES_ALL_TAKEN_TEXT
+    return text, templates_keyboard(available, has_habits=bool(active))
 
 
 async def manage_view(

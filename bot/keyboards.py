@@ -12,6 +12,7 @@ from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.schedule import WEEKDAY_NAMES
+from bot.templates import HabitTemplate
 
 # Telegram обмежує підпис кнопки. Назва звички може бути до 100 символів,
 # тож довгу доведеться вкоротити, інакше API відхилить усе повідомлення.
@@ -68,6 +69,12 @@ class DayCallback(CallbackData, prefix="day"):
     action: str
     habit_id: int
     day: str
+
+
+class TemplateCallback(CallbackData, prefix="tpl"):
+    """Кнопка готової звички: key з bot/templates.py ("tpl:water")."""
+
+    key: str
 
 
 class MenuCallback(CallbackData, prefix="menu"):
@@ -161,6 +168,35 @@ def habits_keyboard(habits: list[dict]) -> InlineKeyboardMarkup:
     # adjust(1) — по одній кнопці в рядок. Без цього aiogram спробував би
     # скласти їх по кілька, і довгі назви перетворилися б на кашу.
     builder.adjust(1)
+    return builder.as_markup()
+
+
+def templates_keyboard(
+    templates: list[HabitTemplate], has_habits: bool
+) -> InlineKeyboardMarkup:
+    """Готові звички, «своя звичка» і — якщо вже є що показати — вихід до списку."""
+    builder = InlineKeyboardBuilder()
+
+    for template in templates:
+        builder.button(
+            text=template.name, callback_data=TemplateCallback(key=template.key)
+        )
+
+    builder.button(
+        text="➕ Своя звичка", callback_data=MenuCallback(action="new_habit")
+    )
+    if has_habits:
+        builder.button(text="✅ До списку", callback_data=MenuCallback(action="habits"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def ask_name_keyboard() -> InlineKeyboardMarkup:
+    """Під питанням «Як назвемо звичку?» — шлях до готових варіантів."""
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="📋 Обрати з шаблонів", callback_data=MenuCallback(action="templates")
+    )
     return builder.as_markup()
 
 

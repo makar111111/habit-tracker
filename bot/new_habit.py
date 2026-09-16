@@ -23,11 +23,14 @@ from bot.api import MAX_NAME_LENGTH, HabitsAPI
 from bot.keyboards import (
     MenuCallback,
     ScheduleCallback,
+    TemplateCallback,
+    ask_name_keyboard,
     schedule_keyboard,
     skip_description_keyboard,
 )
 from bot.schedule import EVERY_DAY, WORKDAYS, schedule_label, toggle_day
-from bot.views import habits_view
+from bot.templates import TEMPLATES_BY_KEY
+from bot.views import habits_view, templates_view
 
 router = Router(name="new_habit")
 
@@ -77,7 +80,7 @@ def schedule_prompt(weekdays: list[int]) -> str:
 @router.message(Command("new"))
 async def start_by_command(message: Message, state: FSMContext) -> None:
     await state.set_state(NewHabit.name)
-    await message.answer(ASK_NAME)
+    await message.answer(ASK_NAME, reply_markup=ask_name_keyboard())
 
 
 @router.callback_query(MenuCallback.filter(F.action == "new_habit"))
@@ -90,7 +93,113 @@ async def start_by_button(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(NewHabit.name)
 
     if callback.message is not None:
-        await callback.bot.send_message(callback.message.chat.id, ASK_NAME)
+        await callback.bot.send_message(
+            callback.message.chat.id, ASK_NAME, reply_markup=ask_name_keyboard()
+        )
+
+
+# ---------- готові звички (шаблони) ----------
+
+TEMPLATE_MID_DIALOG = "Спершу завершимо почате.\nНадішли /cancel, якщо передумав."
+TEMPLATE_STALE = "Цього шаблону вже немає. Онови список: /habits"
+
+
+async def _leave_name_step(state: FSMContext) -> bool:
+    """Чи можна зараз працювати з шаблонами — і звільнити для них місце.
+
+    На кроці назви людина саме й вирішує, яку звичку додати: шаблон —
+    законна відповідь на «Як назвемо звичку?», тож цей стан закриваємо.
+    Далі (опис, розклад) назву вже введено — шаблон мовчки викинув би
+    її, тому там, як і в будь-якому чужому діалозі, відмовляємо.
+    """
+    current = await state.get_state()
+    if current == NewHabit.name.state:
+        await state.clear()
+        return True
+    return current is None
+
+
+async def _redraw(
+    callback: CallbackQuery, view: tuple[str, InlineKeyboardMarkup]
+) -> None:
+    text, keyboard = view
+    message = callback.message
+    if isinstance(message, Message):
+        try:
+            await message.edit_text(text, reply_markup=keyboard)
+        except TelegramBadRequest as error:
+            if "message is not modified" not in str(error):
+                raise
+    elif message is not None:
+        await callback.bot.send_message(message.chat.id, text, reply_markup=keyboard)
+
+
+@router.callback_query(MenuCallback.filter(F.action == "templates"))
+async def show_templates(
+    callback: CallbackQuery, api: HabitsAPI, state: FSMContext
+) -> None:
+    """«📋 Обрати з шаблонів» під питанням про назву."""
+    if callback.from_user is None:
+        await callback.answer()
+        return
+    if not await _leave_name_step(state):
+        await callback.answer(TEMPLATE_MID_DIALOG, show_alert=True)
+        return
+
+    view = await templates_view(api, callback.from_user.id)
+    await callback.answer()
+    await _redraw(callback, view)
+
+
+@router.callback_query(TemplateCallback.filter())
+async def add_from_template(
+    callback: CallbackQuery,
+    callback_data: TemplateCallback,
+    api: HabitsAPI,
+    state: FSMContext,
+) -> None:
+    """Один дотик — звичка з назвою, описом і розкладом шаблону.
+
+    Екран шаблонів лишається відкритим (без щойно доданого), щоб можна
+    було обрати кілька поспіль, — а не викидає людину в список після першого.
+    """
+    if callback.from_user is None or callback.message is None:
+        await callback.answer()
+        return
+
+    # key шле клієнт — модифікований може вписати що завгодно.
+    template = TEMPLATES_BY_KEY.get(callback_data.key)
+    if template is None:
+        await callback.answer(TEMPLATE_STALE, show_alert=True)
+        return
+    if not await _leave_name_step(state):
+        await callback.answer(TEMPLATE_MID_DIALOG, show_alert=True)
+        return
+
+    telegram_id = callback.from_user.id
+    # Під тим самим локом, що й звичайне створення: подвійний дотик інакше
+    # дав би два запити, які обидва побачили б «такої ще немає» — і дві
+    # однакові звички. Перемальовування теж під локом, щоб відповіді не
+    # прийшли в Telegram у зворотному порядку.
+    async with _dialog_locks[(callback.message.chat.id, telegram_id)]:
+        existing = await api.list_habits(telegram_id, include_archived=True)
+        name = template.name.casefold()
+        if any(habit["name"].casefold() == name for habit in existing):
+            note = "Така звичка вже є"
+        else:
+            await api.create_habit(
+                telegram_id,
+                template.name,
+                template.description,
+                weekdays=list(template.weekdays),
+            )
+            note = f"Додано: {template.name}"
+
+        view = await templates_view(api, telegram_id)
+        # Відповідь ПІСЛЯ запитів — як у toggle_checkin: якщо API впаде,
+        # on_error відповість на натискання сам, одним викликом.
+        await callback.answer(note)
+        await _redraw(callback, view)
 
 
 # ---------- вихід із діалогу ----------
