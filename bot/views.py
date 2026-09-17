@@ -30,6 +30,12 @@ EMPTY_TEXT = (
     "Або створи свою кнопкою «➕ Своя звичка»."
 )
 
+EMPTY_BUT_ARCHIVED_TEXT = (
+    "Активних звичок немає — усі в архіві.\n\n"
+    "Відкрий архів, щоб відновити стару разом з історією, "
+    "або почни нову."
+)
+
 TEMPLATES_TEXT = (
     "<b>Готові звички</b> 📋\n\nОдин дотик — і звичка в списку. Можна обрати кілька."
 )
@@ -101,15 +107,22 @@ async def templates_view(
     everything = await api.list_habits(telegram_id, include_archived=True)
     taken = {habit["name"].casefold() for habit in everything}
     active = [habit for habit in everything if not habit.get("archived_at")]
+    archived_count = len(everything) - len(active)
     available = [t for t in TEMPLATES if t.name.casefold() not in taken]
 
-    if not active:
+    if not active and archived_count:
+        # «Немає жодної звички» тут було б неправдою: звички є, просто на
+        # паузі. І саме звідси має бути дорога назад до них.
+        text = EMPTY_BUT_ARCHIVED_TEXT
+    elif not active:
         text = EMPTY_TEXT
     elif available:
         text = TEMPLATES_TEXT
     else:
         text = TEMPLATES_ALL_TAKEN_TEXT
-    return text, templates_keyboard(available, has_habits=bool(active))
+    return text, templates_keyboard(
+        available, has_habits=bool(active), archived_count=archived_count
+    )
 
 
 async def manage_view(

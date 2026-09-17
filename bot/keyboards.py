@@ -172,9 +172,15 @@ def habits_keyboard(habits: list[dict]) -> InlineKeyboardMarkup:
 
 
 def templates_keyboard(
-    templates: list[HabitTemplate], has_habits: bool
+    templates: list[HabitTemplate], has_habits: bool, archived_count: int = 0
 ) -> InlineKeyboardMarkup:
-    """Готові звички, «своя звичка» і — якщо вже є що показати — вихід до списку."""
+    """Готові звички, «своя звичка» і виходи з екрана.
+
+    Вхід в архів обов'язковий, коли він не порожній: цей екран показується
+    і тоді, коли ВСІ звички в архіві, а без такої кнопки людина лишалася б
+    у глухому куті — кнопками до «♻️ Відновити» не дійти, лише командою
+    /manage, про яку тут ніде не сказано.
+    """
     builder = InlineKeyboardBuilder()
 
     for template in templates:
@@ -185,6 +191,11 @@ def templates_keyboard(
     builder.button(
         text="➕ Своя звичка", callback_data=MenuCallback(action="new_habit")
     )
+    if archived_count:
+        builder.button(
+            text=f"📦 Архів ({archived_count})",
+            callback_data=MenuCallback(action="archive"),
+        )
     if has_habits:
         builder.button(text="✅ До списку", callback_data=MenuCallback(action="habits"))
     builder.adjust(1)

@@ -14,6 +14,7 @@
 """
 
 import asyncio
+import json
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -26,6 +27,7 @@ from aiogram.methods import (
     AnswerCallbackQuery,
     AnswerPreCheckoutQuery,
     EditMessageText,
+    SendDocument,
     SendInvoice,
     SendMessage,
 )
@@ -75,6 +77,9 @@ class RecordingSession(BaseSession):
     def __init__(self):
         super().__init__()
         self.sent: list[tuple[str, str, list[str]]] = []
+        # Надіслані файли окремо: у sent лишається лише підпис і ім'я файла,
+        # а байти потрібні, щоб перевірити ВМІСТ експорту, а не сам факт.
+        self.documents: list[tuple[str, bytes]] = []
 
     async def close(self):
         pass
@@ -103,6 +108,14 @@ class RecordingSession(BaseSession):
             # на натискання, Telegram крутить на кнопці «годинник».
             self.sent.append(("Alert", method.text or "", []))
             return True
+
+        if isinstance(method, SendDocument):
+            document = method.document
+            self.documents.append((document.filename, document.data))
+            self.sent.append(
+                ("SendDocument", method.caption or "", [document.filename])
+            )
+            return Message(message_id=len(self.sent), date=datetime.now(), chat=CHAT)
 
         if isinstance(method, SendInvoice):
             # Замість кнопок — ціни: саме їх людина побачить у рахунку.
@@ -750,6 +763,26 @@ async def test_template_tap_creates_habit_with_description_and_daily_schedule(
     assert tg.sent[0] == ("Alert", f"Додано: {template('water').name}", [])
 
 
+async def test_template_passes_its_schedule_to_api(tg: BotUnderTest, monkeypatch):
+    """Розклад має передаватись ЯВНО, а не збігатися з дефолтом API.
+
+    Перевірка habit["weekdays"] == щодня цього не ловить: API без weekdays
+    сам ставить «щодня», а всі шаблони щоденні. Тож дивимось на сам виклик.
+    """
+    calls = []
+    original = tg.api.create_habit
+
+    async def spy(telegram_id, name, description="", **kwargs):
+        calls.append(kwargs)
+        return await original(telegram_id, name, description, **kwargs)
+
+    monkeypatch.setattr(tg.api, "create_habit", spy)
+
+    await tg.tap("tpl:water")
+
+    assert calls == [{"weekdays": list(template("water").weekdays)}]
+
+
 async def test_template_screen_stays_open_without_added_one(tg: BotUnderTest):
     """Можна обрати кілька поспіль — екран не викидає в список після першого."""
     await tg.send("/start")
@@ -876,6 +909,91 @@ def test_templates_fit_telegram_limits():
         assert len(t.name) <= MAX_BUTTON_TEXT
         assert len(TemplateCallback(key=t.key).pack().encode()) <= 64
         assert t.weekdays, "шаблон без жодного дня не нагадував би ніколи"
+
+
+# ---------- вихід з архіву, коли активних звичок немає ----------
+
+
+async def test_all_archived_screen_leads_back_to_archive(tg: BotUnderTest):
+    """Єдину звичку заархівовано — з екрана має бути дорога назад.
+
+    Шаблони замінили собою старий порожній екран, а разом із ним зникла
+    кнопка «⚙️ Керувати» → «📦 Архів» → «♻️ Відновити». Лишалася тільки
+    команда /manage, про яку на цьому екрані ніде не сказано.
+    """
+    habit = await tg.api.create_habit(USER.id, "Йога")
+    await tg.api.update_habit(USER.id, habit["id"], archived=True)
+
+    await tg.send("/habits")
+
+    # Текст більше не бреше: звички є, просто на паузі.
+    assert "усі в архіві" in tg.texts[0]
+    assert "немає жодної звички" not in tg.texts[0]
+    assert "📦 Архів (1)" in tg.buttons
+
+    # І кнопка справді веде в архів, звідки звичку можна відновити.
+    await tg.tap("menu:archive")
+    assert "Архів" in tg.texts[-1]
+    assert "📦 Йога" in tg.buttons
+
+
+async def test_new_user_screen_has_no_archive_button(tg: BotUnderTest):
+    """У новачка архіву немає — кнопка була б дорогою в порожнечу."""
+    await tg.send("/habits")
+
+    assert not any("Архів" in button for button in tg.buttons)
+    assert "немає жодної звички" in tg.texts[0]
+
+
+# ---------- /export ----------
+
+
+async def test_export_sends_json_file_with_all_data(tg: BotUnderTest):
+    first = await tg.api.create_habit(USER.id, "Йога", "щоранку")
+    await tg.api.create_habit(USER.id, "Читати")
+    await tg.api.check_in(USER.id, first["id"])
+
+    await tg.send("/export")
+
+    (filename, data) = tg.bot.session.documents[-1]
+    assert filename == "habits-export.json"
+    export = json.loads(data)
+    assert [habit["name"] for habit in export["habits"]] == ["Йога", "Читати"]
+    assert len(export["checkins"]) == 1
+    # Підпис рахується з того самого файла, тож числа не можуть розійтися.
+    kind, caption, _ = tg.sent[-1]
+    assert kind == "SendDocument"
+    assert "2 звички" in caption and "1 відмітка" in caption
+
+
+async def test_export_includes_archived_habits(tg: BotUnderTest):
+    """Забрати свої дані — означає ВСІ, зокрема ті, що на паузі."""
+    habit = await tg.api.create_habit(USER.id, "Йога")
+    await tg.api.update_habit(USER.id, habit["id"], archived=True)
+
+    await tg.send("/export")
+
+    export = json.loads(tg.bot.session.documents[-1][1])
+    assert [habit["name"] for habit in export["habits"]] == ["Йога"]
+
+
+async def test_export_for_new_user_is_still_a_file(tg: BotUnderTest):
+    """Порожній експорт — теж чесна відповідь, а не помилка."""
+    await tg.send("/export")
+
+    export = json.loads(tg.bot.session.documents[-1][1])
+    assert export["habits"] == [] and export["checkins"] == []
+    assert "0 звичок" in tg.sent[-1][1]
+
+
+async def test_export_does_not_leak_another_user(tg: BotUnderTest):
+    await tg.api.create_habit(9999, "Чужа звичка")
+    await tg.api.create_habit(USER.id, "Моя")
+
+    await tg.send("/export")
+
+    export = json.loads(tg.bot.session.documents[-1][1])
+    assert [habit["name"] for habit in export["habits"]] == ["Моя"]
 
 
 # ---------- HTML-екранування власного імені ----------

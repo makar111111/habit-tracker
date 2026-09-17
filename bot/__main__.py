@@ -27,6 +27,7 @@ COMMANDS = [
     BotCommand(command="new", description="Додати звичку"),
     BotCommand(command="manage", description="Керувати звичками"),
     BotCommand(command="settings", description="Налаштування нагадувань"),
+    BotCommand(command="export", description="Забрати свої дані файлом"),
     BotCommand(command="support", description="Підтримати проєкт"),
     BotCommand(command="help", description="Довідка"),
 ]

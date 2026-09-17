@@ -211,6 +211,17 @@ class HabitsAPI:
         response = await self._request("PATCH", "/users/me", telegram_id, json=payload)
         return self._ok(response).json()
 
+    async def export(self, telegram_id: int) -> bytes:
+        """Повний експорт людини у вигляді сирих байтів JSON.
+
+        Саме БАЙТИ, а не розібраний dict: файл іде в Telegram як документ,
+        тож розбирати й збирати його назад було б зайвою роботою, яка ще
+        й могла б змінити форматування. Розбір потрібен лише для підпису,
+        і робить його той, кому підпис потрібен.
+        """
+        response = await self._request("GET", "/users/me/export", telegram_id)
+        return self._ok(response).content
+
     async def confirm_login(self, telegram_id: int, token: str) -> None:
         """Підтвердити код входу у вебверсію від імені цієї людини.
 

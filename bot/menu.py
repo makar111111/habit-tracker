@@ -1,16 +1,19 @@
-"""Команди: /start, /help, /habits.
+"""Команди: /start, /help, /habits, /export.
 
 Router — це набір обробників, який потім підключається до диспетчера.
 Розкладати бота по роутерах не обовʼязково, але коли їх стане десяток,
 різниця між «зрозуміло» і «файл на тисячу рядків» буде саме тут.
 """
 
+import json
+
 from aiogram import Router
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message
+from aiogram.types import BufferedInputFile, Message
 from aiogram.utils.text_decorations import html_decoration
 
 from bot.api import HabitsAPI
+from bot.plural import plural
 from bot.views import habits_view
 
 router = Router(name="menu")
@@ -23,6 +26,7 @@ HELP_TEXT = (
     "/settings — година нагадувань, часовий пояс, увімкнути чи вимкнути\n"
     "/cancel — перервати початий діалог\n"
     "/support — підтримати проєкт донатом у Stars\n"
+    "/export — забрати всі свої дані файлом\n"
     "/help — ця довідка\n\n"
     "Бот нагадує про заплановані невідмічені звички у вибрану годину "
     "за твоїм часовим поясом. Змінити її — /settings.\n\n"
@@ -79,3 +83,31 @@ async def handle_habits(message: Message, api: HabitsAPI) -> None:
 
     text, keyboard = await habits_view(api, message.from_user.id)
     await message.answer(text, reply_markup=keyboard)
+
+
+@router.message(Command("export"))
+async def handle_export(message: Message, api: HabitsAPI) -> None:
+    """Надіслати файлом усі звички й відмітки людини.
+
+    Дані трекера — чужі, не наші: людина має могти забрати їх і піти.
+    Ендпоінт /users/me/export уже віддає готовий JSON одним знімком бази,
+    тож бот лише пересилає його документом.
+    """
+    if message.from_user is None:
+        return
+
+    data = await api.export(message.from_user.id)
+    # Підпис рахуємо з того ж файла, що й відправляємо: інакше числа
+    # могли б розійтися з вмістом, якби між двома запитами щось змінилось.
+    export = json.loads(data)
+    habits = len(export.get("habits", []))
+    checkins = len(export.get("checkins", []))
+
+    await message.answer_document(
+        BufferedInputFile(data, filename="habits-export.json"),
+        caption=(
+            f"📦 Твої дані: {habits} {plural(habits, 'звичка', 'звички', 'звичок')}, "
+            f"{checkins} {plural(checkins, 'відмітка', 'відмітки', 'відміток')}.\n\n"
+            "Формат JSON — його читає і людина, і програма."
+        ),
+    )
